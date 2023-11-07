@@ -1,5 +1,5 @@
-# Template_Registry_Query
-Template GitHub repository for CorEvitas Biostatistical query projects
+# RA US Registry Data Setup Code
+GitHub repository for CorEvitas Registry Management Team
 
 ## File Tree  
 
@@ -7,12 +7,10 @@ Template GitHub repository for CorEvitas Biostatistical query projects
 Template_Registry_Query/
 ├── data/
 │   └── README.md
-├── figs/
+├── code/
+│   ├── 00_RAUS_masterfile.R
 │   └── README.md
-├── reports/
-│   └── README.md
-├── R/
-│   ├── 00_main.R
+├── reference_file/
 │   └── README.md
 ├── .gitignore
 └── README.md
