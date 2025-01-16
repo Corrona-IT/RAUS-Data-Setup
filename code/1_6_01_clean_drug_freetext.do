@@ -25,8 +25,8 @@ gen drugtxt=lower(drug_name_txt)
 ///////////////////////////////////////////////////////////////////////////
 
 // general drugkey from drug_name
-
-foreach x in actemra orencia cimzia enbrel humira kineret simponi simponi_aria remicade rituxan amjevita olumiant erelzi renflexis inflectra kevzara sirukumab xeljanz xeljanz_xr mtx arava azulfidine imuran plaquenil minocin cyclosporine pred invest rinvoq ridaura cuprimine  kenalog {
+// 2024-10-29 adding more biosimilars to humira, remicade and rituxan 
+foreach x in actemra orencia cimzia enbrel erelzi humira idacio hyrimoz cyltezo yusimry amjevita hadlima hulio kineret simponi simponi_aria remicade renflexis avsola inflectra ixifi rituxan truxima olumiant  kevzara sirukumab xeljanz xeljanz_xr mtx arava azulfidine imuran plaquenil minocin cyclosporine pred invest rinvoq ridaura cuprimine  kenalog {
 	replace drugkey="`x'" if strpos(lower(drug_name), "`x'") & strpos(lower(drug_name), "other")==0
 } 
 
@@ -103,7 +103,19 @@ for any umira humin humir humira ada humri humra humnira humiro humia hurmi adal
 for any amgevita amjevita atto : replace drugkey="amjevita" if strpos(drugtxt, "X") 
 
 // hadlima added on 2024-05-02
-for any hadlima bwwd: replace drugkey="amjevita" if strpos(drugtxt, "X") 
+for any hadlima bwwd: replace drugkey="hadlima" if strpos(drugtxt, "X") 
+
+// 2024-10-29 added more biosimilars
+// Hulio
+for any hulio fkjp: replace drugkey="hulio" if strpos(drugtxt, "X") 
+// Yusimry
+for any yusimry aqvh: replace drugkey="yusimry" if strpos(drugtxt, "X") 
+// Cyltezo
+for any cyltezo adbm: replace drugkey="cyltezo" if strpos(drugtxt, "X") 
+// Hyrimoz
+for any hyrimoz adaz: replace drugkey="hyrimoz" if strpos(drugtxt, "X") 
+// Idacio
+for any idacio aacf: replace drugkey="hyrimoz" if strpos(drugtxt, "X") 
 
 // humira other biosimilar 
 replace drugkey="humira_bs" if drugkey=="humira" & strpos(drugtxt, "other")  
@@ -111,12 +123,13 @@ for any "ada biosim" : replace drugkey="humira_bs" if strpos(drugtxt, "X")
 
 // simponi
 for any simponi simpni simpon " aria" golimu glimum symponi simoponi simiponi sinponi: replace drugkey="simponi" if strpos(drugtxt, "X") & drugtxt!="solgarial" 
-// LG added 
-for any aia ara arai arir aroa arira aria iv arua: replace drugkey="simponi_aria" if drugkey=="simponi" & strpos(drugtxt, "X") 
+// LG added updated again 2024-10-24
+for any aia ara arai arir aroa arira aria iv arua airia ariq: replace drugkey="simponi_aria" if drugkey=="simponi" & strpos(drugtxt, "X") 
 replace drugkey="simponi_aria" if drugtxt=="aria" | drugtxt=="simoni/aria"
 
 // cimzia 
 for any cimia cimzia certoliz cizmia cimzz cimizia cinzia cimza : replace drugkey="cimzia" if strpos(drugtxt, "X") 
+for any cza: replace drugkey="cimzia" if drugtxt=="X" 
 
 // remicade 
 for any remicade remicad remicaid remicd remciade remincade remcade reicade renicade emicade remicaee remicae remicase remimcade : replace drugkey="remicade" if strpos(drugtxt, "X") & drugkey=="" 
@@ -131,6 +144,9 @@ for any abda reflexus reflexis renbflexis renflex renfe renflex reneflex : repla
 // LG added axxq
 for any ausola avsol avsola avosla avosla axxq: replace drugkey="avsola" if strpos(drugtxt, "X") 
 
+// 2024-10-29 adding more biosimilar Ixifi
+for any ixifi qbtx: replace drugkey="ixifi" if strpos(drugtxt, "X") 
+
 // Remicade other biosimilar 
 for any infliximab inf: replace drugkey="remicade_bs" if strpos(drugtxt, "X") & drugkey=="" & strpos(drugtxt, "mab") // check 
 
@@ -139,6 +155,8 @@ for any inflixmal infliximeb: replace drugkey="remicade_bs" if strpos(drugtxt, "
 replace drugkey="remicade_bs" if strpos(drugtxt, "rem") & strpos(drugtxt, "biosim")  
 
 replace drugkey="remicade_bs" if drugtxt=="infliximab other" 
+// 2024-10-30 LG
+replace drugkey="remicade_bs" if drugtxt=="" & strpos(drug_name, "infliximab other") & drugkey==""
 
 /////////////////////	Non-TNFis
 
@@ -155,15 +173,25 @@ for any kevzara sarilum kesvara kezvara kevarza keuza keusara: replace drugkey="
 for any kineret anakinra anaki kincret: replace drugkey="kineret" if strpos(drugtxt, "X")  
 
 // rituxan and biosimilar
-for any ritoxan ritiuxan rituxan rituan rituxin ritxan riutxan rixtan rtuxan rtx "rit uxan" ritaxon retuxan rituxen rituzan retuxin: replace drugkey="rituxan" if strpos(drugtxt, "X") 
+// 2024-10-29 LG moved rituxima from truxima list
+// 2024-11-12 removed for rituxan_bs rotuximab rituxiumab rituxamib rhuximab ritumimab rituxima
+for any  ritoxan ritiuxan rituxan rituan rituxin ritxan riutxan rixtan rtuxan rtx "rit uxan" ritaxon retuxan rituxen rituzan retuxin: replace drugkey="rituxan" if strpos(drugtxt, "X") 
 // drug: Rituximab-pvvr(Ruxience) - Rituxan biosimilar -Pfizer LG added pvvr 
 for any pvvr rexience ruxience: replace drugkey="ruxience" if strpos(drugtxt, "X")   
-// rituxan bs other 
-for any rotuximab rituximab ritumimab rituxiumab rhuximab ritaxim rituximob rituxamib: replace drugkey="rituxan_bs" if strpos(drugtxt, "X") & drugkey=="" 
 
 // truxima LG added abbs and limited to drugkey==""
 // 2024-05-02 added trixima
-for any abbs truxema truima truxina truxima truyima truzima tsuxima rituxima trruxima tsuxina trixima: replace drugkey="truxima" if strpos(drugtxt, "X")  & drugkey==""
+for any abbs truxema truima truxina truxima truyima truzima tsuxima  trruxima tsuxina trixima: replace drugkey="truxima" if strpos(drugtxt, "X")  & drugkey==""
+//2024-10-30 added riabni, biosimilar of rituxan
+for any riabni arrx: replace drugkey="riabni" if strpos(drugtxt, "X")
+
+// 2024-10-24 rituxan bs other should be after truxima 
+// 2024-10-29 it's not clear how to differenciate between rituxan vs. rituxan_bs other.
+// 2024-11-12 rituxan_bs were mis-classified to rituxan rituximab 
+
+replace drugkey="rituxan_bs" if strpos(drug_name, "rituximab other") & drugkey=="" & drugtxt==""
+// 2024-11-12 adding rhuximab  rituxima
+for any rhuximab rituxima rotuximab rituximab ritumimab rituxiumab rhuximab ritaxim rituximob rituxamib: replace drugkey="rituxan_bs" if strpos(drugtxt, "X") & (drug_name=="" |strpos(drug_name, "other")) & drugkey=="" 
 
 // sirukumab 
 for any siruku sirikumab : replace drugkey="sirukumab" if strpos(drugtxt, "X") 
@@ -173,7 +201,7 @@ for any siruku sirikumab : replace drugkey="sirukumab" if strpos(drugtxt, "X")
 for any toficitinib toficitinib xel tofa xeijan xejan senj xejan xenj xaljanz zeljanz xenljan xljanz zelijan tfacitinib tocacitinib: replace drugkey="xeljanz" if strpos(drugtxt, "X") 
 
 // LG added more xeljanz_xr
-for any " xr" " er" " sr" " xe" " xl": replace drugkey="xeljanz_xr" if drugkey=="xeljanz" & strpos(drugtxt, "X") & strpos(drugtxt, "on xeljanz as")==0
+for any " xr" " er" " sr" " xe" " xl" "xeljanz-xr" xeljanzxr: replace drugkey="xeljanz_xr" if drugkey=="xeljanz" & strpos(drugtxt, "X") & strpos(drugtxt, "on xeljanz as")==0
 // LG replace a few 
 for any "not xeljanz":replace drugkey="" if strpos(drugtxt, "X") 
 
@@ -212,7 +240,7 @@ replace drugkey="" if drugtxt=="hyoscyameic" & drugkey=="cyclosporine"
 for any micycline minicycline minocin minocyc minoclyc minoayc minocc mihocyc minicin mimocydine minoci mihocycline minici minoayc monocyc monocin:  replace drugkey="minocin" if strpos(drugtxt, "X") 
 
 ////////////// hydroxychloroquine (Plaquenil) LG added hydoxych
-for any hyroxychloroquine hydoxych hydroxych quinacrine plq hq plaqu plauq paquenil plauenil hyydroxycholoquine: replace drugkey="plaquenil" if strpos(drugtxt, "X") 
+for any hyroxychloroquine hydoxych hydroxych quinacrine plq hq plaqu plauq paquenil plauenil hyydroxycholoquine ydroxychloroquine hydroxichloroquin chloroquine chlorequine: replace drugkey="plaquenil" if strpos(drugtxt, "X") 
 
 ////////////// sulfasalazine (Azulfidine)
 // LG excludes hydoxychloroquine sulfate
@@ -277,8 +305,8 @@ for any acthar actar achtar acth steroid : replace othra="acthar" if strpos(drug
 // LG exclude corticosteroid from acthar 
 replace othra="" if drugtxt=="corticosteroid"
 
-// added v20231020
-for any cellcept mucophenolate mycophenolate "cell cept" celstone celcept celicept cellest cellcet cevcept "cell cept" mmf: replace othra="cellcept" if strpos(drugtxt, "X") 
+// added v20231020 2024-10-24 removed mmf
+for any cellcept mucophenolate mycophenolate "cell cept" celstone celcept celicept cellest cellcet cevcept "cell cept" : replace othra="cellcept" if strpos(drugtxt, "X") 
 
 for any otzela otezla ortezia ortezla otelza oterzla apremilast apremicase : replace othra="otezla" if strpos(drugtxt, "X") 
 
@@ -299,14 +327,14 @@ for any tremfya temfya guselkumab: replace othra="tremfya" if strpos(drugtxt, "X
 for any stelara ustekinumab stelera stelora stelura: replace othra="stelara" if strpos(drugtxt, "X") 
 
 for any tacrolimus  prograf tarto tacrolinus : replace othra="prograf" if strpos(drugtxt, "X")  // atopic dermatitis, immuno suppression
-
-for any skyrizi risankizu: replace othra="skyrizi" if strpos(drugtxt, "X") 
+// 2024-10-29 added skyrizzi
+for any skyrizzi skyrizi risankizu: replace othra="skyrizi" if strpos(drugtxt, "X") 
 
 for any leucovorin: replace othra="leucovorin" if strpos(drugtxt, "X")  
 
 for any oskira: replace othra="oskira" if strpos(drugtxt, "X") 
 
-for any ocrelizumab ocrevus ocruvus: replace othra="ocruvas" if strpos(drugtxt, "X")  // MS
+for any ocrelizumab ocrevus ocruvus ocruvas: replace othra="ocruvas" if strpos(drugtxt, "X")  // MS
 
 // LG exclude quinacrine 
 for any chloraqu chloreq chloroq chlorq choroq atabrine: replace othra="quinacrine" if strpos(drugtxt, "X") & drugkey!="plaquenil" // quinacrine
@@ -324,7 +352,8 @@ for any rheumate: replace othra="rheumate" if  strpos(drugtxt, "X")
 
 for any celestone :  replace othra="celestone"  if strpos(drugtxt, "X") // steroid 
 
-for any myfortic myfurtic mycoph mefetil mycophpayate: replace othra="myfortic" if strpos(drugtxt, "X") 
+// 2024-10-24 added mmf
+for any myfortic myfurtic mycoph mefetil mycophpayate mmf: replace othra="myfortic" if strpos(drugtxt, "X") 
 // glucocorticoid/cortisol LG added glucocorticoid 
 for any glucocorticoid cortef dexamethasone "solu medral" decadron sexamethasone deflazacont: replace othra="glucocorticoid"   if strpos(drugtxt, "X")  & drugkey==""
 
@@ -374,7 +403,8 @@ for any diclofenac: replace nonra="diclofenac" if strpos(drugtxt, "X") // nsaids
 
 for any rofecoxib vioxx : replace nonra="vioxx" if strpos(drugtxt, "X") // nsaids 
 // LG added nsaids indomethacin
-for any indomethacin nsaids voltaren diclofenac motrin meloxica  etodolac sulindac sulindac oxaprozin napro advil bentyl lyrica mobic indocin nabumetone relafen daypro: replace nonra="nsaids" if strpos(drugtxt, "X")  
+// 2024-10-29 LG added ibuprofen
+for any nsaids ibuprofen indomethacin nsaids voltaren diclofenac motrin meloxica  etodolac sulindac sulindac oxaprozin napro advil bentyl lyrica mobic indocin nabumetone relafen daypro: replace nonra="nsaids" if strpos(drugtxt, "X")  
 
 for any tramadol: replace nonra="tramadol" if strpos(drugtxt, "X") // pain
  
@@ -489,8 +519,8 @@ for any sinemet : replace nonra="sinemet" if strpos(drugtxt, "X") // Antiparkins
 for any doxipent: replace nonra="doxipent" if strpos(drugtxt, "X") //Antidepressant
 
 for any ergocalciferol: replace nonra="vitamin D2" if strpos(drugtxt, "X")
-
-replace nonra="avibactam" if drugtxt=="cza" // ceftazidime/avibactam
+// 2024-10-24 should be cimzia
+*replace nonra="avibactam" if drugtxt=="cza" // ceftazidime/avibactam
 
 
 ///////////////////////////////////////////////////////////////////////////////

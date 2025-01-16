@@ -785,9 +785,9 @@ save "temp\rawdata\infection_data_5.dta", replace
 //Removing duplicates within En/FU visits*********
 **************************************************
 *local rawdata "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\Biostats PV\Bernice\data\"
-*use "temp\rawdata\infection_data_5.dta", clear
+use "temp\rawdata\infection_data_5.dta", clear
 gen visit=1 if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU"
-replace visit=0 if dw_event_type_acronym=="TAE_INF"
+replace visit=0 if strpos(dw_event_type_acronym, "TAE") // Ying revised on 2024-12-19 from dw_event_type_acronym=="TAE_INF" 
 tab dw_event_type_acronym visit, m
 preserve
 keep if visit==1
@@ -865,7 +865,8 @@ save "temp\rawdata\infection_data_6.dta", replace
 use "temp\rawdata\infection_data_6.dta", clear
 gen enrollandtae=.
 replace enrollandtae=1 if dw_event_type_acronym=="EN"
-replace enrollandtae=0 if dw_event_type_acronym=="TAE_INF"
+replace enrollandtae=0 if dw_event_type_acronym=="TAE_INF" 
+
 tab dw_event_type_acronym enrollandtae, m
 
 keep if enrollandtae==1 | enrollandtae==0
@@ -958,7 +959,7 @@ save "temp\rawdata\infection_data_7.dta", replace
 use "temp\rawdata\infection_data_7.dta", clear
 
 ** bring in visit_date from fv_event_instances 
-merge m:1 subject_number dw_event_instance_uid subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym  using "bv_raw\fv_event_instances", keepusing(dw_event_instance_uid visit_date tae_date)
+merge m:1 subject_number dw_event_instance_uid subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym  using "bv_raw\bv_event_instances", keepusing(dw_event_instance_uid visit_date tae_date)
 keep if _merge==3
 drop _merge 
 
@@ -1040,7 +1041,18 @@ drop vN
 
 unique subject_number visitdate infkey onset_date infection_type_txt
 
-save "clean_table\1_8_allinf.dta", replace
+// 2025-01-09 added
+codebook visitdate // [01oct2001,30jan2025] ==> [01jan1900,31dec2024]
+count if visitdate>d(31dec2024) //15
+
+count if visitdate>d($cutdate)
+drop if visitdate>d($cutdate)
+
+
+** save dataset 
+compress
+
+save "clean_table\1_8_allinf_$datacut.dta", replace
 
 *****************************
 

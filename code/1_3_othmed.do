@@ -2,6 +2,8 @@
 global bv "~\Corrona LLC\Biostat Data Files - Registry Data\RA\monthly\ODBC\dwh_db\2024-02-02" 
 *global data "~\Corrona LLC\Biostat Data Files - Registry Data\RA\Data Warehouse Project 2020 - 2021\Analytic File\data\clean_table"
 
+date: 2024-11-25 clean duplicates for cholesterol report by different version
+
 *cd "~\Corrona LLC\Biostat Data Files - Registry Data\RA\monthly\Transition\analysis\allvisits" 
 */ 
 
@@ -200,29 +202,35 @@ drop parent_study dw_site_uid dw_subject_uid coll_conmed_instance_uid coll_map_u
 drop discontinued_due_to_ae attributed_to_ae c_is_suppressed_not_seen x_is_test indication_txt 
 drop *_code 
 drop c_effective_event_date  most_recent_dose_date 
-drop coll_*
+drop coll_* 
 
-save "clean_table\1_3_conmeds" , replace 
+*2024-11-25 clean duplicates if same conmed_name and conmed_name_txt and conmed_section, keep if duplicate reported by SU and MD 
 
-/*****************************
+sort subject_number visitdate conmed_section conmed_name conmed_name_txt full_version 
+by subject_number visitdate conmed_section conmed_name conmed_name_txt: drop if _n<_N 
 
-use clean_table\1_3_conmeds, clear 
+unique subject_number visitdate conmed_section conmed_name conmed_name_txt 
+unique subject_number visitdate conmed_section drugkey conmed_name_txt 
 
-gen conmedtxt=lower(conmed_name_txt) 
+ // 29 cholesterol lowering medication reported on different version map to different name, keep later version 
+sort subject_number visitdate conmed_section drugkey conmed_name_txt full_version 
+by subject_number visitdate conmed_section drugkey conmed_name_txt: drop if _n<_N 
 
-tab conmedtxt, sort 
+drop if site_number>=998 
 
-bysort conmedtxt: gen vn=_n if conmedtxt!=""
-bysort conmedtxt: gen freq=_N if conmedtxt!=""
+// 2025-01-14, drop data out of cutdate and compress to save space 
+
+codebook visitdate // [01oct2001,17dec2025]
+count if visitdate>d(31dec2024) //506
+
+count if visitdate>d($cutdate)
+drop if visitdate>d($cutdate)
+
+compress 
+save "clean_table\1_3_conmeds_$datacut" , replace 
 
 
-gsort -freq
 
-export excel conmedtxt freq drugkey full_version if vn==1 using temp\conmed_txt.xlsx, sheet(conmed_drug, replace) firstrow(var) 
-
-br conmedtxt freq drugkey full_version 
-
-br  subject_number conmed_name_txt visitdate freq  drugkey full_version conmed_section if strpos(conmedtxt, "cimzia") & freq>1 
 
 
 

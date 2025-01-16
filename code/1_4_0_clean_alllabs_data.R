@@ -30,7 +30,7 @@ library(tidyverse)
 tdy_date <- Sys.Date()
 # cut date to use while BVs are still in odbc
 # LG 2024-08-09 update for new data 
-cut_date    <- as.Date("2024-08-01")
+cut_date    <- as.Date("2025-01-01")
 
 # cut_date <- floor_date(Sys.Date(), "month")-1
 # test cut_date var
@@ -305,8 +305,9 @@ imaging_clean <-  haven::read_dta(glue("{bv_raw}/bv_imaging.dta")) %>%
     )
   ) %>% 
   # MRI only option available before version 7; currently given the imaging type of MRI / Ultrasound - joint
+  # LG 2024-11-07 should be full_version < 8? 2024-12-05 changed to < 8
   mutate(
-    imaging_type_code = if_else(imaging_type_code == 5215 & full_version < 7, 5210, imaging_type_code, imaging_type_code )
+    imaging_type_code = if_else(imaging_type_code == 5215 & full_version < 8, 5210, imaging_type_code, imaging_type_code )
   ) %>% 
   # filter rows where it's unclear if the test result is MRI or ultrasound
   filter(imaging_type != "MRI / Ultrasound - joint ") %>% 
@@ -644,6 +645,7 @@ all_labs_labelled <- all_labs %>%
     #                                 "RA-RCC"        = 5)
   )  %>% 
   # drop vars that have a *_code var 
+  # LG 2024-11-07==> keep lab_img_name_code to check missing lab_img_name of version 7 mri.
   select(-c(
     lab_img_name,
     lab_img_result_intpn,
@@ -730,10 +732,13 @@ all_labs_labelled <- all_labs %>%
 
 # keep the latest version
 # if data is missing from the latest version, fill using previous version
+# LG added bug fix by Marie in June on 738 and 741
 all_labs_labelled_dupes <- all_labs_labelled  %>% 
-  filter(tot > 1)%>% 
+  filter(tot > 1)%>%
+  group_by(subject_number, c_effective_event_date, lab_img_name, img_finding) %>%
   fill(everything(), 
-       .direction = "down") %>% 
+       .direction = "down") %>%
+  ungroup() %>% 
   filter(tot == row_n) %>% 
   arrange(subject_number, c_effective_event_date, lab_img_name, lab_img_dt, img_finding, full_version)  
 
@@ -787,11 +792,12 @@ all_labs_labelled_deduped <- all_labs_labelled %>%
 # temp_location <- glue("{sharepoint}/Biostat Data Files - RA/Data Warehouse Project 2020 - 2021/Analytic File/data/clean_table")
 # LG 2024-07-05 use temp test folder instead of clean_table folder 
 # LG 2024-07-10 save to clean_table folder
-ra_monthly <- glue("{sharepoint}/Biostat Data Files - RA/monthly/{cut_year}/{cut_date}/clean_table")
+ra_monthly <- glue("{sharepoint}/Biostat Data Files - RA/monthly/{cut_year}/{cut_date}/temp")
 dir.exists(ra_monthly)
 
+# LG saving data into temp folder and then run Ying's stata code for further cleaning
 
-haven::write_dta(all_labs_labelled_deduped, glue("{ra_monthly}/1_4_alllabs.dta"))
+haven::write_dta(all_labs_labelled_deduped, glue("{ra_monthly}/1_4_alllabs_temp.dta"))
 # LG not saving R data for now. Only keep the stata file
 #saveRDS(all_labs_labelled_deduped, glue("{ra_monthly}/1_4_alllabs.rds"))
 

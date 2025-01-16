@@ -26,7 +26,7 @@ library(tidyverse)
 #-------------
 tdy_date <- Sys.Date()
 # cut date to use while BVs are still in odbc
-cut_date    <- as.Date("2024-06-01")
+cut_date    <- as.Date("2025-01-01")
 
 # cut_date <- floor_date(Sys.Date(), "month")-1
 # test cut_date var
@@ -137,7 +137,7 @@ exit_clean <- haven::read_dta(glue("{bv_raw}/bv_exits.dta")) %>%
       x           <- other_spec
       Encoding(x) <- "latin1"
       x           <-gsub('"|â€\u009d|â€œ', '', x)
-      x           <- gsub('\x93|\x94', '', x)
+      # x           <- gsub('\x93|\x94', '', x) # LG 2024-10-28, giving error message, ignored.
       x           <- gsub('â€“', "-", x)
       x           <- gsub('“|”', "", x)
       
@@ -405,7 +405,8 @@ exit_labelled_deduped <- exit_labelled %>%
   select(-death_rheum_diag_c1)
 
 # temp_location <- glue("{sharepoint}/Biostat Data Files - RA/Data Warehouse Project 2020 - 2021/Analytic File/data/clean_table")
-ra_monthly <- glue("{sharepoint}/Biostat Data Files - RA/monthly/{cut_year}/{cut_date}/clean_table")
+# 2025-01-14 save temp data then use stata to delete visitdate beyond cutdate and save with $datacut
+ra_monthly <- glue("{sharepoint}/Biostat Data Files - RA/monthly/{cut_year}/{cut_date}/temp")
 dir.exists(ra_monthly)
 
 # exit_codebook <- look_for(exit_labelled_deduped, details = "full") %>% 
@@ -416,5 +417,5 @@ dir.exists(ra_monthly)
 
 # haven::write_dta(exit_labelled, "./data/1_5_exit.dta")
 
-haven::write_dta(exit_labelled_deduped, glue("{ra_monthly}/1_5_exit.dta"))
-saveRDS(exit_labelled_deduped, glue("{ra_monthly}/1_5_exit.rds"))
+haven::write_dta(exit_labelled_deduped, glue("{ra_monthly}/1_5_exit_temp.dta"))
+#saveRDS(exit_labelled_deduped, glue("{ra_monthly}/1_5_exit.rds"))

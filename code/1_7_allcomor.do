@@ -26,9 +26,11 @@ save temp\temp_tae_nmel_type, replace
 
 *~~~~~~~~~~~ Bring in datasets
 * ying added
+// 2024-12-04: have to make sure two data are in the same date schema so they have the same dw_event_instance_uid
+
 use "bv_raw\bv_comorbidities", clear 
 
-merge m:1 dw_event_instance_uid using "bv_raw\fv_event_instances", keepus(visit_date) 
+merge m:1 dw_event_instance_uid using "bv_raw\bv_event_instances", keepus(visit_date) 
 drop if _m==2 
 drop _m 
 
@@ -36,6 +38,8 @@ gen visitdate=date(visit_date, "YMD")
 replace visitdate=date(c_effective_event_date, "YMD") if visitdate==. & strpos(c_effective_event_date, "X")==0 
 replace visitdate=dofc(c_event_created_date) if visitdate==. 
 format visitdate %tdCCYY-NN-DD 
+// 2024-12-04 
+codebook visitdate // no entries for 30dec2024
 
 assert visitdate<. 
 ********************************************
@@ -350,8 +354,60 @@ restore
 
 ** drug-induced reactions 
 * - drug hypersensitivity
+
+/*
+// 2024-10-30 adding anaphylaxis? 
+1.	Email from Isaias on 10-21-2024:For RA specifically, CERTAIN & PRETM edc values ‘Anaphylaxis’ and ‘Anaphylaxis {TAE}’ will now be coded to 17090 within the ae_comor lookup.
+2.  Team chat with Isais 2024-10-31: The Anaphylaxis change will be in 20241201 instead and there are no other changes expected for 20241101
+v2024-11-01 . 
+groups comor_type_code comor_type_txt comor_type_txt_new if strpos(comor_type_txt_new,"anaphylaxis"), missing ab(20)
+
+  +---------------------------------------------------------------------------------------------------------------------------------+
+  | comor_type_code                                 comor_type_txt                             comor_type_txt_new   Freq.   Percent |
+  |---------------------------------------------------------------------------------------------------------------------------------|
+  |           99920                                    Anaphylaxis                                    anaphylaxis       4     40.00 |
+  |           99920   Anaphylaxis (not injection/infusion related)   anaphylaxis (not injection/infusion related)       1     10.00 |
+  |           99920                   Anaphylaxis 99 Other Drug 05                   anaphylaxis 99 other drug 05       1     10.00 |
+  |           99920                                    anaphylaxis                                    anaphylaxis       3     30.00 |
+  |           99923               anaphylaxis to blood transfusion               anaphylaxis to blood transfusion       1     10.00 |
+  +---------------------------------------------------------------------------------------------------------------------------------+
+
+. groups comor_type_code comor_type_txt comor_type_txt_new if strpos(comor_type_txt_new,"hypersensitivity reaction"), missing ab(20)
+
+  +-------------------------------------------------------------------------------------------+
+  | comor_type_code              comor_type_txt          comor_type_txt_new   Freq.   Percent |
+  |-------------------------------------------------------------------------------------------|
+  |           99920   hypersensitivity reaction   hypersensitivity reaction       1    100.00 |
+  +-------------------------------------------------------------------------------------------+
+
+. groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17041, missing ab(20)
+
+  +----------------------------------------------------------------------------------------------------------------------+
+  | comor_type_code                                   comor_type   comor_type_txt   comor_type_txt_new   Freq.   Percent |
+  |----------------------------------------------------------------------------------------------------------------------|
+  |           17041   drug hypersensitivity reaction anaphylaxis                                            25    100.00 |
+  +----------------------------------------------------------------------------------------------------------------------+
+
+. groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17090, missing ab(20)
+no observations
+. groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17040, missing ab(20)
+
+  +-----------------------------------------------------------------------------------------------------------------------------+
+  | comor_type_code                                          comor_type   comor_type_txt   comor_type_txt_new   Freq.   Percent |
+  |-----------------------------------------------------------------------------------------------------------------------------|
+  |           17040   drug hypersensitivity reaction (specify severity)                                           400    100.00 |
+  +-----------------------------------------------------------------------------------------------------------------------------+
+*/
+groups comor_type_code comor_type_txt comor_type_txt_new if strpos(comor_type_txt_new,"anaphylaxis"), missing ab(20)
+groups comor_type_code comor_type_txt comor_type_txt_new if strpos(comor_type_txt_new,"hypersensitivity reaction"), missing ab(20)
+groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17041, missing ab(20)
+*groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17090, missing ab(20) // no obs 
+groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17040, missing ab(20)
+//2024-11-01 LG hold this part
+
+// 2024-12-04 LG added back, but no change is expected 
 preserve 
-keep if strpos(comor_type_txt_new, "hypersensitivity reaction")>0
+keep if strpos(comor_type_txt_new, "hypersensitivity reaction")>0 |strpos(comor_type_txt_new, "anaphylaxis")>0  
 replace comor_type_new = "drug hypersensitivity reaction (specify severity)"
 replace comor_type_code_new = 17040
 save "temp\data\ana", replace 
@@ -1367,7 +1423,7 @@ gen imp_onset_date = onset_date if !missing(onset_date)
 
 
 ** bring in visit_date from fv_event_instances 
-merge m:1 dw_event_instance_uid using "bv_raw\fv_event_instances", keepusing(dw_event_instance_uid visit_date)
+merge m:1 dw_event_instance_uid using "bv_raw\bv_event_instances", keepusing(dw_event_instance_uid visit_date)
 keep if _merge==3
 drop _merge 
 
@@ -1518,7 +1574,7 @@ drop x_is_test c_is_suppressed_not_seen dw_subject_uid  coll_map_uid  dw_site_ui
 drop if site_number=="999" | site_number=="998" | site_number=="1440" |site_number=="1019" // test sites 
 
 * Ying edit on 2024-08-15 
-use clean_table\1_7_allcomor, clear 
+*use clean_table\1_7_allcomor, clear 
 
 lab define ny 0 no  1 yes, modify 
 destring targeted, replace 
@@ -1531,8 +1587,18 @@ foreach x in confirm_tae serious {
 }
 
 unique subject_number comor_type comor_type_txt onset_date location location_txt_orig // unique key 
+
+// 2025-01-09 drop dates beyond datacut 
+codebook visitdate // [01jan1900,07jan2025] ==> [01jan1900,31dec2024]
+*count if visitdate>d(31dec2024)
+
+count if visitdate>d($cutdate)
+drop if visitdate>d($cutdate)
+
+
 ** save dataset 
-save clean_table\1_7_allcomor, replace 
+compress
+save clean_table\1_7_allcomor_$datacut, replace 
 
 
 foreach x in diabetes osteopenia osteoporosis metaoblic_oth hypertension revasc vent_arrhythmia mi acs unstable_angina cad chf stroke tia dvt pe oth_vte periph_art_dis pat upar periph_isch_gang  copd emphysema int_lung asthma ana sle breast lung colon uterine cervical prostate leukemia lymphoma myeloma nmsc melanoma peptic gi_perf bleed_ulcer hepatic_biop liver_disease hepatic_nonser osteoarthritis gout sjogren fracture pso anemia anxiety depression suic_idea self_injury  suic_attempt fibromyalgia demyelinating dementia hemi_para neuro_other  kidney_disease kidney_injury hemorrhage surgery gerd aa boop cardiac_arrest carotid /*diagnostic_cath*/ diarrhea dyspepsia elevated_creatinine hematology_disorder leukopenia lung_disease nausea psych_disease rheumatoid_pleurisy rheum_pulm_nodule skin_rash edema vascular_oth cardio_oth respiratory_oth malignancy_pre gi_other drug_ind_liver sub_nodules 1nmsc 1tae 1visits 2nmsc 2tae 2visits appended_txt full_appended_txt full_clean_before_dedup has_txt hyperlipidemia md_tae_nonmsc no_txt diagnostic_cath {  

@@ -389,7 +389,13 @@ drop parent_study_acronym c_edc_event_instance_key c_dw_event_instance_key c_eff
 unique subject_number visitdate 
 compress 
 
+codebook visitdate 
+count if visitdate>d($cutdate) // 84
+
+drop if visitdate>d($cutdate)
+
 order subject_number visitdate site_number 
-save clean_table\1_11_sumedprobs, replace 
+
+save clean_table\1_11_sumedprobs_$datacut, replace 
 
 

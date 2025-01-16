@@ -22,12 +22,11 @@ cd "~\Corrona LLC\Biostat Data Files - Registry Data\RA\monthly\Transition\analy
 
 *******************************************************************/ 
 
-
 **************************************************************************
 
 * created current using (nsaid, analgesics, opioid) 
 
-use clean_table\1_3_conmeds, clear 
+use clean_table\1_3_conmeds_$datacut, clear 
 
 drop if conmed_status=="past" | conmed_status=="unknown" | conmed_status=="stop" 
 destring full_version site_number, replace 
@@ -68,7 +67,7 @@ save temp\temp_nsaids, replace
 ***************************************************
 * history of comorbidities, reshape to wide 
 
-use clean_table\1_7_allcomor, clear 
+use clean_table\1_7_allcomor_$datacut, clear 
 
 * edit onset date 
 foreach x in month day {
@@ -144,7 +143,7 @@ keep subject_number visitdate dw_event_type_acronym dw_event_instance_uid
 bysort subject_number visitdate: drop if _n>1 
 save temp\temp_comorvisit, replace 
 
-use subject_number visitdate using "clean_table\1_2_allvisits", clear 
+use subject_number visitdate using "clean_table\1_2_allvisits_$datacut", clear 
 
 sort subject_number visitdate 
 by subject_number: gen lastvisit=visitdate[_N] 
@@ -183,7 +182,7 @@ lab var link_visit "linked office visit"
 unique subject_number visitdate comorkey comor_type comor_type_txt location 
 
 sort subject_number visitdate comorkey  
-save clean_table\1_7_allcomor_linked, replace 
+save temp\1_7_allcomor_linked, replace // LG changed from clean_table folder to temp folder for codebook automation
 
 erase temp\temp_comorvisit.dta 
 erase temp\temp_allcomor.dta 
@@ -191,7 +190,7 @@ erase temp\temp_allcomor.dta
 
 *keep subject_number visitdate comorkey comor_type location onsetdate full_version site_number dw_event_type_acronym serious targeted 
 
-use clean_table\1_7_allcomor_linked, clear 
+use temp\1_7_allcomor_linked, clear 
 
 * reshape to wide format for history of comorbidities 
 
@@ -230,7 +229,7 @@ save temp\temp_comor, replace
 
 * created history of serious infection (hosp/iv) since version 7 
 
-use "clean_table\1_8_allinf", clear 
+use "clean_table\1_8_allinf_$datacut", clear 
 drop if visitdate==. 
 
 destring full_version site_number, replace 
@@ -284,12 +283,12 @@ save temp\temp_hxdrug, replace
 
 * merge all baseviwe data of lab, imaging, comor, inf, radrug, othmed, subjects) with longitudinal data 
 
-use "clean_table\1_2_allvisits.dta", clear 
+use "clean_table\1_2_allvisits_$datacut", clear 
 
 unique subject_number visitdate 
 
 sort subject_number visitdate 
-merge m:1 subject_number using "clean_table\1_1_subjects.dta", keepus(height_in_tot symptom_year race_* c_education famhx_* hispanic birthyear female_male diagnosis_year exit_* death_dt marital_status) 
+merge m:1 subject_number using "clean_table\1_1_subjects_$datacut", keepus(height_in_tot symptom_year race_* c_education famhx_* hispanic birthyear female_male diagnosis_year exit_* death_dt marital_status) 
 drop if site_number>=998 
 drop if _m<3 
 drop _m 
@@ -419,7 +418,15 @@ drop _m fstdt_inf_serious inf_serious_dt
 sort subject_number visitdate 
 merge 1:1 subject_number visitdate using temp\temp_nsaids 
 assert _m!=2 
-
+ 
+/*list subject_number visitdate if _m==2, noobs ab(16)
+  +-----------------------------+
+  | subject_number    visitdate |
+  |-----------------------------|
+  |      254010199   2024-12-02 |==> 2024-12-05 out of range 
+  +-----------------------------+
+*/
+drop if _m==2
 drop _m 
 
 for any nsaiduse opioid analgesics: replace X=0 if X==. 
@@ -567,7 +574,7 @@ cap drop edu_cat4
 gen edu_cat4=1 if c_education<=1 
 replace edu_cat4= c_education if c_education>=2 & c_education<=4 
 replace edu_cat4=4 if c_education==5
-lab define edu4 1 "12th grade or less" 2 "High scholl graduate/GED" 3 "Some college/associate degree" 4 "College graduate or higher", modify 
+lab define edu4 1 "12th grade or less" 2 "High school graduate/GED" 3 "Some college/associate degree" 4 "College graduate or higher", modify 
 lab val edu_cat4 edu4
 lab var edu_cat4 "Final education" 
 
@@ -611,7 +618,7 @@ replace duration_ra=year(visitdate)-symptom_year if duration_ra==. & age_onset_r
 replace duration_ra=. if duration_ra<0 | duration_ra>=age 
 
 lab var duration_ra  "Duration of RA" 
-lab var yr_onset_ra "year of onset RA" 
+lab var yr_onset_ra "Year of onset RA" 
 
 
 *  smoker indicator 
@@ -732,7 +739,7 @@ gen jtspnarrow=jt_sp_narrow>0 if jt_sp_narrow<.
 lab var jtspnarrow "JT space narrowing" 
 
 gen jtdeform=deformity>0 if deformity<. 
-lab var jtdeform "Joint deformity
+lab var jtdeform "Joint deformity"
 
 
 * ever had rf and ccp positive using new X_pos_ever at version 15 enrollment form 
@@ -781,7 +788,7 @@ drop subcnm cumsubcnm
 /* 
 Oksana 2023-11-6 eamil: 
 Based on how the query team uses alcohol variable in the analysis, can we have the following set of variables in the analytic file?
-1.	Original variables drink_freq and DRINK_PERDAY with the skip pattern that is coming from DRINK_RECENT incorporated into the variables
+1.	Original variables drink_freq and drink_n_perday with the skip pattern that is coming from DRINK_RECENT incorporated into the variables
 2.	DRINKING_ETOH with 6 categories: 0 = Not at all; 1 = 1-3 drinks per week; 2 = 4-6 drinks per week; 3 = 1-2 drinks per day; 4 = 3 drinks or more daily; 5 = occasion 
 3.	Recoded DRINKING_ETOH with 5 categories: 0 = None/<1 drink per week ; 1 = 1-3 drinks per week; 2 =4-6 drinks per week; 3= 1-2 drinks per day; 4 = 3 drinks or more daily
 4.	Recoded DRINKING_ETOH with 2 categories: 0 = None/<1 drink per week ; 1 = 1 drink per week or more
@@ -791,11 +798,11 @@ Based on how the query team uses alcohol variable in the analysis, can we have t
 
 * drinker yes/no : any variable reported drinking, consider as drinker 
 
-gen drink_yn=(drinking_etoh>0 & drinking_etoh<. | drink_perday>0 & drink_perday<. | drink_times>0 & drink_times<. | drinks_status==1 ) if drinking_etoh<. | drink_times<. | drink_perday<. |  drinks_status<. | drink_none<. 
+gen drink_yn=(drinking_etoh>0 & drinking_etoh<. | drink_n_perday>0 & drink_n_perday<. | drink_times>0 & drink_times<. | drinks_status==1 ) if drinking_etoh<. | drink_times<. | drink_n_perday<. |  drinks_status<. | drink_none<. 
 lab val drink_yn ny 
 lab var drink_yn "Drinking status (yes/no)" 
 
-* drinking frequence 
+* drinking frequency 
 lab define drinkf 0 none 1 "every day" 2 "5-6 times a week" 3 "4 times a week" 4 "3 times a week" 5 "twice a week" 6 "once a week" 7 "2-3 times a month" 8 "once a month"  9 "less than once a month" 10 "1-3 per week" 11 "1-2 per day" 12 "3 or more daily"  13 "occasionally" , modify 
 
 cap drop drink_freq 
@@ -829,23 +836,23 @@ lab var drink_freq "Recent drinking frequency"
 
 * standardize number of drinks per week for version 8-14
 cap drop drinkpwk 
-gen drinkpwk=drink_perday*7 if drink_times_dwm==1 
-replace drinkpwk=drink_perday if drink_times_dwm==2 
-replace drinkpwk=drink_perday/4 if drink_times_dwm==3 
+gen drinkpwk=drink_n_perday*7 if drink_times_dwm==1 
+replace drinkpwk=drink_n_perday if drink_times_dwm==2 
+replace drinkpwk=drink_n_perday/4 if drink_times_dwm==3 
 * version 15 using drink_freq 
-replace drinkpwk = drink_perday*7 if drink_freq==1 
-replace drinkpwk = drink_perday*6 if drink_freq==2 
-replace drinkpwk = drink_perday*4 if drink_freq==3 	
-replace drinkpwk = drink_perday*3 if drink_freq==4  
-replace drinkpwk = drink_perday*2 if drink_freq==5  
-replace drinkpwk = drink_perday   if drink_freq==6  
-replace drinkpwk = drink_perday*3/4 if drink_freq==7 
-replace drinkpwk = drink_perday/4 if drink_freq==8 
-replace drinkpwk = drink_perday/5 if drink_freq==9 
+replace drinkpwk = drink_n_perday*7 if drink_freq==1 
+replace drinkpwk = drink_n_perday*6 if drink_freq==2 
+replace drinkpwk = drink_n_perday*4 if drink_freq==3 	
+replace drinkpwk = drink_n_perday*3 if drink_freq==4  
+replace drinkpwk = drink_n_perday*2 if drink_freq==5  
+replace drinkpwk = drink_n_perday   if drink_freq==6  
+replace drinkpwk = drink_n_perday*3/4 if drink_freq==7 
+replace drinkpwk = drink_n_perday/4 if drink_freq==8 
+replace drinkpwk = drink_n_perday/5 if drink_freq==9 
 replace drinkpwk=0 if drink_yn==0 
 
 * 6 drink category: 
-lab define drink6 0 "Not at all" 1  "1-3 drinks per week" 2 "4-6 drinks per week" 3 "1-2 drinks daily" 4 "3 drinks or more daily" 5 occasion, modify 
+lab define drink6 0 "Not at all" 1  "1-3 drinks per week" 2 "4-6 drinks per week" 3 "1-2 drinks daily" 4 "3 drinks or more daily" 5 Occasionally, modify 
 gen drink_cat6=0 if drink_yn==0 
 replace drink_cat6=1 if drinkpwk>=1 & drinkpwk<4
 replace drink_cat6=2 if drinkpwk>=4 & drinkpwk<7
@@ -861,14 +868,14 @@ lab val drink_cat6 drink6
 lab var drink_cat6 "Drinks (cat.6)"
 
 * drinks 5 categories 
-lab define drink5  0 "Not/<1 drink per week" 1 "1-3 drink per week" 2 "4-6 per week" 3 "1-2 drink daily" 4 "3 or more drink daily", modify 
+lab define drink5  0 "Not/<1 drink per week" 1 "1-3 drinks per week" 2 "4-6 per week" 3 "1-2 drinks daily" 4 "3 or more drinks daily", modify 
 
 gen drink_cat5=drink_cat6 
 replace drink_cat5=0 if drink_cat6==5 
 lab val drink_cat5 drink5 
 lab var drink_cat5 "Drinks (cat.5)"
 
-lab define drink2 0 "Not/<1 drink per week" 1 "1 drinks per week or more" , modify 
+lab define drink2 0 "Not/<1 drink per week" 1 "1 or more drinks per week" , modify 
 gen drink_cat2=drink_cat5>=1 if drink_cat5<. 
 lab var drink_cat2 "Drinks (cat.2)" 
 
@@ -930,13 +937,18 @@ drop myoi-connect
 lab var cci "Charlson Comorbidity Index with peptic ulcer only"
 lab var cci_2 "Charlson Comorbidity Index with peptic ulcer and hx of any ulcer" 
 
+// 2024-11-04 LG add eq5d here 
+eq5d health_status_walking health_status_selfcare health_status_activities health_status_pain health_status_anx_dep, country(US) saving(eq5d)
+lab var eq5d "EQ5D(3L)" 
+replace eq5d=. if eq5d<=0  // 265 replaced to 0 
 
+sum eq5d, d // 287k+ out of 481k+
 
 * may drop below variables from keyvisitvars, they are in 1_2_allvisits. 
 
 cap drop  c_effective_event_date c_is_* smoke_oth* ae_comor_tox_fract ae_comor_tox_fract_since hx_bio_en no_bio_sm* fracture_* infections_*  med_condition_* su_meds_* md_meds_* osteo_meds_* surgeries_* surgeries_* tb_ever tb_since tb_blood_* vaccine_* x_* emergency rheum_visits outpt_* surgeries_* lab_rad_dxa_submit labs_imaging_coll 
 
-cap drop drinks_status drink_perday drink_times drink_times_dwm drink_none drink_days_3 drinking_etoh drink_days_3_wmy smoke_ever_100 smoke_start_age smoke_current smoke_perday smoke_n_perday smoke_regular smoke_last_age smoke_lifetime_year smoke_lifetime_month smoke_start smoke_quit smoking_cigs 
+cap drop drinks_status drink_n_perday drink_times drink_times_dwm drink_none drink_days_3 drinking_etoh drink_days_3_wmy smoke_ever_100 smoke_start_age smoke_current smoke_perday smoke_n_perday smoke_regular smoke_last_age smoke_lifetime_year smoke_lifetime_month smoke_start smoke_quit smoking_cigs 
 
 cap drop doi_not_started_1 doi_not_started_2 doi_reason_1 doi_reason_2 doi_reason_oth_spec_1 doi_reason_oth_spec_2 doi_route_2 doi_not_started_oth_1 doi_not_started_oth_2 study_other_enrolled cbc_yn cbc_yn_code chest_xray_yn dxa_yn dxa_yn_code hep_b_panel_yn hep_b_panel_yn_code inflammatory_yn inflammatory_yn_code joint_mri_yn joint_mri_yn_code joint_ultrasound_yn_code joint_xray_yn kidney_function_yn kidney_function_yn_code lipid_panel_yn lipid_panel_yn_code liver_function_yn liver_function_yn_code ra_diag_results_yn ra_diag_results_yn_code vitamin_d_yn vitamin_d_yn_code 
 
@@ -996,11 +1008,11 @@ lab var md_id "MD ID (combined with site number)"
 
 drop site_id ck everck md mdn md_cod 
 
-lab var c_event_created_date "Created Date"
-lab var c_event_last_modified_date "Last modified data"
+lab var c_event_created_date "Created date"
+lab var c_event_last_modified_date "Last modified date"
 lab var dw_event_instance_uid "Event instance UID"
-lab var exit_other "Other exit reason,specify"
-lab var death_dt "date of death"
+lab var exit_other "Other exit reason, specify"
+lab var death_dt "Date of death"
 lab var status "Site status"
 lab var site_type "Site type"
 lab var state "Site US state"
@@ -1013,6 +1025,7 @@ drop newbio_today race_white race_black race_asian race_native_am race_pacific h
 drop symptom_year diagnosis_year form inf_serious  
 drop smoke_start_dt smoke_quit_dt lab_rad_dxa_submit labs_imaging_coll 
 drop fractures_yes_no fractures_since_yes_no surgeries_yes_no surgeries_since_yes_no emergency famhx_* 
+drop conmed_yes_no 
 
 sort subject_number visitdate 
 save temp\temp_keyvisitvars, replace 
@@ -1020,8 +1033,9 @@ save temp\temp_keyvisitvars, replace
 *************************************************
 
 *this section need to use 2_1_drugexpdetail data for history of drug 
+// 2024-11-04 LG added datacut for data name 
 
-use subject_number visitdate hx_* drug_key generic_key init_drug drug_stop drug_stop_date next_visit visit_* dw_event_type_acronym drug_date drug_start_date *generic* drug_status using "2_1_DrugExpDetails", clear  
+use subject_number visitdate hx_* drug_key generic_key init_drug drug_stop drug_stop_date next_visit visit_* dw_event_type_acronym drug_date drug_start_date *generic* drug_status using "2_1_drugexpdetails_$datacut", clear  
 
 drop if visit_indexn==visit_indexN & visitdate<drug_date 
 
@@ -1036,7 +1050,8 @@ bysort subject_number visitdate: drop if _n<_N
 sort subject_number visitdate
 
 gen ck=. 
-foreach x in arava	azulfidine	cuprimine	cyclosporine	imuran	invest	minocin	mtx	plaquenil	ridaura	sirukumab	orencia	amjevita	humira	kineret	cimzia	enbrel	erelzi	simponi	simponi_aria	avsola	inflectra	remicade	remicade_bs	renflexis	rituxan	rituxan_bs	ruxience	truxima	kevzara	actemra	olumiant	xeljanz	xeljanz_xr	rinvoq	kenalog	meth_pred	pred { 
+// 2024-11-01 LG added more drug names 
+foreach x in arava	azulfidine	cuprimine	cyclosporine	imuran	invest	minocin	mtx	plaquenil	ridaura	sirukumab	orencia	humira amjevita	abrilada cyltezo hadlima idacio hyrimoz yusimry hulio kineret	cimzia	enbrel	erelzi	simponi	simponi_aria	avsola	ixifi inflectra	remicade	remicade_bs	renflexis	rituxan	rituxan_bs	ruxience	truxima riabni	kevzara	actemra	olumiant	xeljanz	xeljanz_xr	rinvoq	kenalog	meth_pred	pred { 
 qui by subject_number: replace ck=1 if _n==_N & drug_key=="`x'"  & init_drug==1  & drug_stop==1 & drug_stop_date>visitdate & drug_stop_date<=next_visit 
 }	
 tab ck 
@@ -1055,7 +1070,9 @@ replace visitdate=next_visit if ck2==1 & expand==1
 
 unique subject_number visitdate 
 sort subject_number visitdate 
-foreach x in arava	azulfidine	cuprimine	cyclosporine	imuran	invest	minocin	mtx	plaquenil	ridaura	sirukumab	orencia	amjevita humira	kineret	cimzia	enbrel	erelzi	simponi	simponi_aria	avsola	inflectra	remicade	remicade_bs	renflexis	rituxan	rituxan_bs	ruxience	truxima	kevzara	actemra	olumiant	xeljanz	xeljanz_xr	rinvoq	kenalog	meth_pred	pred { 
+
+// 2024-11-04 no data yet for abrilada idacio 
+foreach x in arava	azulfidine	cuprimine	cyclosporine	imuran	invest	minocin	mtx	plaquenil	ridaura	sirukumab	orencia	amjevita humira cyltezo hadlima hyrimoz yusimry hulio kineret	cimzia	enbrel	erelzi	simponi	simponi_aria	avsola	ixifi inflectra	remicade	remicade_bs	renflexis	rituxan	rituxan_bs	ruxience	truxima	 riabni kevzara	actemra	olumiant	xeljanz	xeljanz_xr	rinvoq	kenalog	meth_pred	pred { 
 by subject_number: replace hx_`x'=1 if ck==1 & expand==1 & _n==_N & drug_key=="`x'"  
 } 
 
@@ -1077,7 +1094,7 @@ merge 1:1 subject_number visitdate using temp\temp_hxdrug
 sort subject_number visitdate 
 
 * carry forward history of drug to all visits 
-local list hx_adalimumab	hx_arava	hx_azulfidine	hx_corticosteroids	hx_cuprimine	hx_cyclosporine	hx_etanercept	hx_golimumab	hx_imuran	hx_infliximab	hx_invest	hx_minocin	hx_mtx	hx_plaquenil	hx_ridaura	hx_rituximab	hx_sirukumab	hx_tofacitinib	hx_orencia	hx_amjevita	hx_humira	hx_kineret	hx_cimzia	hx_enbrel	hx_erelzi	hx_simponi	hx_simponi_aria	hx_avsola	hx_inflectra	hx_remicade	hx_remicade_bs	hx_renflexis	hx_rituxan	hx_rituxan_bs	hx_ruxience	hx_truxima	hx_kevzara	hx_actemra	hx_olumiant	hx_xeljanz	hx_xeljanz_xr	hx_rinvoq	hx_kenalog	hx_meth_pred	hx_pred
+local list hx_adalimumab	hx_arava	hx_azulfidine	hx_corticosteroids	hx_cuprimine	hx_cyclosporine	hx_etanercept	hx_golimumab	hx_imuran	hx_infliximab	hx_invest	hx_minocin	hx_mtx	hx_plaquenil	hx_ridaura	hx_rituximab	hx_sirukumab	hx_tofacitinib	hx_orencia	hx_amjevita	hx_humira hx_cyltezo hx_hadlima hx_hyrimoz hx_yusimry hx_hulio	hx_kineret	hx_cimzia	hx_enbrel	hx_erelzi	hx_simponi	hx_simponi_aria	hx_avsola hx_ixifi	hx_inflectra	hx_remicade	hx_remicade_bs	hx_renflexis	hx_rituxan	hx_rituxan_bs	hx_ruxience	hx_truxima hx_riabni	hx_kevzara	hx_actemra	hx_olumiant	hx_xeljanz	hx_xeljanz_xr	hx_rinvoq	hx_kenalog	hx_meth_pred	hx_pred
 foreach x of local list {
 by subject_number: replace `x'=`x'[_n-1] if `x'==. & `x'[_n-1]<. 
 replace `x'= 0 if `x'==. 	
@@ -1086,25 +1103,10 @@ replace `x'= 0 if `x'==.
 
 drop _m 
 compress hx_* 
+
+drop inflammatory_yn 
  
 order site_number subject_number visitdate md_id full_version dw_event_type_acronym source_acronym study_acronym  
 sort subject_number visitdate 
-save 2_3_keyvisitvars, replace  
 
-*save RA_visits, replace // rename data 
-
-/*
-foreach x in comor conmed event_instance hxdrug image inf nsaids radrug rfccp sites {
-cap erase temp\temp_`x'.dta 
-} 
-
-
-
-
-
-
-
-
-
-
-
+save 2_3_keyvisitvars_$datacut, replace 

@@ -57,7 +57,7 @@ save ..\..\for_update\gender, replace
 
 *******************************************************/
 
-use "bv_raw\fv_subjects", clear 
+use "bv_raw\bv_subjects", clear 
 
 
 * Rich email on 2024-04-01 updates from sites
@@ -175,7 +175,7 @@ sort subject_number
 
 drop is_in_substudy_1 subject_provided_* parent_study_acronym *_uid 
 
-save temp\fv_subjects_clean, replace 
+save temp\bv_subjects_clean, replace 
 
 *****************************
 /* check age onset
@@ -197,15 +197,16 @@ export excel subject_number birth_year diagnosis_year age_onset_ra duration_ra e
 
 */
 
-
-use "RAsitestatus.dta", clear 
+// 2024-12-04 moved site status from analytic folder to clean table folder
+use "clean_table\RAsitestatus_$datacut.dta", clear 
 rename site_id site_number 
 drop if site_number>=997 
 unique site_number 
 
 replace state="FL" if state=="Fl" 
-replace state="" if state=="AN" 
-
+*replace state="" if state=="AN" 
+replace state="FL" if site_number==262 & state=="NA" // 2024-10-02 edited by LG
+count if state!=shipping_state
 
 gen region=. 
 
@@ -229,7 +230,11 @@ replace region=4 if strpos(state, "`x'")
 
 lab define regionf 1 Northeast 2 Midwest 3 South 4 West, modify
 lab val region regionf
+// 2024-12-04 create numeric format of site_type 
 
+encode site_type, gen(site_type_num)
+rename site_type site_type_str 
+rename site_type_num site_type 
 keep site_number status state site_type region 
 
 sort site_number 
@@ -373,10 +378,10 @@ drop anyrace
 lab var race_native_am  "American Indian/Alaskan native"
 lab var race_asian  "Asian"
 lab var race_black  "African american"
-lab var race_pacific "race-Native Hawaiian or other pacific islander"
-lab var race_white  "race-white"
-lab var race_other  "race-other"
-lab var race_other_specify  "other race specify"
+lab var race_pacific "Native Hawaiian or other pacific islander"
+lab var race_white  "White"
+lab var race_other  "Other"
+lab var race_other_txt  "Other race specify" // 2024-10-02 LG changed to race_other_txt; found variable called "race_alt", no value
 rename race_hispanic hispanic 
 lab var hispanic "Ethnicity-Hispanic/Latina"  
 
@@ -450,12 +455,230 @@ save temp\bv_subject_demo_clean, replace
 
 use temp\bv_subject_demo_clean, clear 
 destring site_number, replace 
+// 2025-01-09 subject_demographic view changed from birth_year to birthyear 
 
-merge 1:1 subject_number using temp\fv_subjects_clean 
+destring birthyear, replace 
 
+corcf * using temp\bv_subjects_clean, id(subject_number) verbose noobs 
+
+/*
+birthyear: 9 mismatches
+
+  +-------------------------------------------+
+  | subject_number   master_data   using_data |
+  |-------------------------------------------|
+  |      003001455          1193         1935 |
+  |      022050028          1640         1940 |
+  |      036010633             1         1923 |
+  |      061010733          1853         1953 |
+  |      061010735          1853         1953 |
+  |-------------------------------------------|
+  |      100285369          1995         1945 |
+  |      100415414          1965         1996 |
+  |      104010061          1061         1961 |
+  |      167010038          1054         1954 |
+  +-------------------------------------------+
+
+
+
+site_number: 144 mismatches
+
+  +-------------------------------------------+
+  | subject_number   master_data   using_data |
+  |-------------------------------------------|
+  |      001010056             1           83 |
+  |      001010128             1           83 |
+  |      002021972            76            2 |
+  |      009010005             9          146 |
+  |      009010026             9          146 |
+  |-------------------------------------------|
+  |      009010031             9          146 |
+  |      009010033             9          146 |
+  |      009010047             9          146 |
+  |      009010101             9          146 |
+  |      009010102             9          146 |
+  |-------------------------------------------|
+  |      009010104             9          146 |
+  |      009010107             9          146 |
+  |      009010110             9          146 |
+  |      009010111             9          146 |
+  |      009010117             9          146 |
+  |-------------------------------------------|
+  |      009010119             9          146 |
+  |      009010122             9          146 |
+  |      009010136             9          146 |
+  |      009010157             9          146 |
+  |      009010158             9          146 |
+  |-------------------------------------------|
+  |      009010198             9          146 |
+  |      009010202             9          146 |
+  |      009010214             9          146 |
+  |      009010215             9          146 |
+  |      009010216             9          146 |
+  |-------------------------------------------|
+  |      009010223             9          146 |
+  |      009010226             9          146 |
+  |      009010234             9          146 |
+  |      009010235             9          146 |
+  |      009010242             9          146 |
+  |-------------------------------------------|
+  |      009010243             9          146 |
+  |      009010249             9          146 |
+  |      009010250             9          146 |
+  |      009010255             9          146 |
+  |      009010287             9          146 |
+  |-------------------------------------------|
+  |      009010299             9          146 |
+  |      009010311             9          146 |
+  |      009010315             9          146 |
+  |      009010322             9          146 |
+  |      009010329             9          146 |
+  |-------------------------------------------|
+  |      009010333             9          146 |
+  |      009010339             9          146 |
+  |      009010353             9          146 |
+  |      009010367             9          146 |
+  |      009010370             9          146 |
+  |-------------------------------------------|
+  |      009010376             9          146 |
+  |      009010382             9          146 |
+  |      009010396             9          146 |
+  |      009010398             9          146 |
+  |      009010405             9          146 |
+  |-------------------------------------------|
+  |      009010413             9          146 |
+  |      009020001             9          146 |
+  |      009020002             9          146 |
+  |      009020019             9          146 |
+  |      009020035             9          146 |
+  |-------------------------------------------|
+  |      009020037             9          146 |
+  |      009020044             9          146 |
+  |      009020068             9          146 |
+  |      009020079             9          146 |
+  |      009020082             9          146 |
+  |-------------------------------------------|
+  |      009020083             9          146 |
+  |      009020085             9          146 |
+  |      009020089             9          146 |
+  |      009020114             9          146 |
+  |      009020116             9          146 |
+  |-------------------------------------------|
+  |      009020132             9          146 |
+  |      009020133             9          146 |
+  |      009020135             9          146 |
+  |      009020176             9          146 |
+  |      009020183             9          146 |
+  |-------------------------------------------|
+  |      009020184             9          146 |
+  |      009020189             9          146 |
+  |      009020199             9          146 |
+  |      009020208             9          146 |
+  |      009020209             9          146 |
+  |-------------------------------------------|
+  |      009020237             9          146 |
+  |      009020245             9          146 |
+  |      009020246             9          146 |
+  |      009020252             9          146 |
+  |      009020253             9          146 |
+  |-------------------------------------------|
+  |      009020254             9          146 |
+  |      009020261             9          146 |
+  |      009020265             9          146 |
+  |      009020267             9          146 |
+  |      009020275             9          146 |
+  |-------------------------------------------|
+  |      009020278             9          146 |
+  |      009020286             9          146 |
+  |      009020292             9          146 |
+  |      009020295             9          146 |
+  |      009020302             9          146 |
+  |-------------------------------------------|
+  |      009020307             9          146 |
+  |      009020325             9          146 |
+  |      009020331             9          146 |
+  |      009020343             9          146 |
+  |      009020344             9          146 |
+  |-------------------------------------------|
+  |      009020352             9          146 |
+  |      009020354             9          146 |
+  |      009020360             9          146 |
+  |      009020368             9          146 |
+  |      009020384             9          146 |
+  |-------------------------------------------|
+  |      009020387             9          146 |
+  |      009020391             9          146 |
+  |      009020395             9          146 |
+  |      009020397             9          146 |
+  |      009020412             9          146 |
+  |-------------------------------------------|
+  |      009020429             9          146 |
+  |      009020430             9          146 |
+  |      009020464             9          146 |
+  |      009020483             9          146 |
+  |      009020491             9          146 |
+  |-------------------------------------------|
+  |      009030142             9          146 |
+  |      009030480             9          146 |
+  |      009040048             9          146 |
+  |      012060791            12          100 |
+  |      042020064            42          151 |
+  |-------------------------------------------|
+  |      042020124            42          151 |
+  |      083010004            83            1 |
+  |      083010005            83            1 |
+  |      083010026            83            1 |
+  |      083010035            83            1 |
+  |-------------------------------------------|
+  |      083010091            83            1 |
+  |      083010143            83            1 |
+  |      083010144            83            1 |
+  |      086030062            86            1 |
+  |      086042302            86          142 |
+  |-------------------------------------------|
+  |      087100098            87           94 |
+  |      107010699           107           35 |
+  |      118040520           118          178 |
+  |      131010001           131          176 |
+  |      131010032           131          176 |
+  |-------------------------------------------|
+  |      131010047           131          176 |
+  |      131010057           131          176 |
+  |      131010065           131          176 |
+  |      131010097           131          176 |
+  |      131010140           131          176 |
+  |-------------------------------------------|
+  |      131010151           131          176 |
+  |      131010161           131          176 |
+  |      131010171           131          176 |
+  |      140399351            31            1 |
+  |      251779508            31            1 |
+  |-------------------------------------------|
+  |      290699634            31            1 |
+  |      740479223            31          108 |
+  |      757859374            31            1 |
+  |      994239612            31            1 |
+  +-------------------------------------------+
+*/
+
+// 2025-01-09 use update replace for birthyear and site_number from bv_subjects_clean data 
+merge 1:1 subject_number using temp\bv_subjects_clean, update replace 
+/*
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                           704
+        from master                       393  (_merge==1)
+        from using                        311  (_merge==2)
+
+    matched                            61,113
+        not updated                    60,960  (_merge==3)
+        missing updated                     0  (_merge==4)
+        nonmissing conflict               153  (_merge==5)
+    -----------------------------------------
+*/
 
 rename _m subj_form 
-lab define subj 1 "bv_subject_demo. only" 2 "fv_subjects only" 3 both, modify 
+lab define subj 1 "bv_subject_demo. only" 2 "bv_subjects only" 3 both 5 updated, modify 
 lab val subj_form subj 
 lab var subj_form "subject data"  
 
@@ -486,20 +709,30 @@ drop _m
 drop c_effective_event_date subj_form 
 
 sort subject_number 
-save clean_table\1_1_subjects.dta, replace 
+codebook visitdate // [01oct2001,07jan2025] ==> [01jan1900,31dec2024]
+count if visitdate>d(31dec2024) //326
+
+count if visitdate>d($cutdate)
+drop if visitdate>d($cutdate)
+
+
+** save dataset 
+compress
+save clean_table\1_1_subjects_$datacut, replace 
 
 erase temp\temp_exit.dta 
 
-
+/* LG 2024-09-03 subject already in data. Do not need to do this step again.
+use clean_table\1_1_subjects.dta, clear
 *2024-08-06 update one subject 144010163 missing in this build bv_subject_demographic_data 
-use "C:\Users\yshan\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-07-01\clean_table\1_1_subjects.dta", clear 
+use "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-08-01\clean_table\1_1_subjects.dta", clear 
 keep if subject_number=="144010163"
 merge 1:1 subject_number using clean_table\1_1_subjects.dta 
 drop _m 
 
 sort subject_number 
 save clean_table\1_1_subjects.dta, replace 
-
+*/
 
 
 

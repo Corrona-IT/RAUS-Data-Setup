@@ -1,6 +1,6 @@
 /***************************************************************************************************************************
 
-ode Name: clean_allvisits.do 
+code Name: clean_allvisits.do 
 Purpose: clean variables on all visits from data source 
 Programmer: Ying Shan
 Input datasets: fv_subjects, sites, bv_subject_demographic_data, bv_exits 
@@ -12,6 +12,10 @@ bv_longitudinal_visit_data: disease activity, PROs, smoking, drinking, vaccine, 
 bv_labtest: lab_name=rf, ccp, crp, esr with value and unit, upper_limit_value 
 bv_imigings: imiging_name= erosions, deformity, joint space narrowing 
 fv_event_instance: for all office visits from all events 
+
+Ying: revised 2024-12-09 
+use clean_table 1_4_alllabs instead bv_labs to consistent with final clean lab data and 
+excluded vectra_da which created for UnlearnAI, now it is in 1_4_alllabs 
 
 ******************************************************************************************************************************/
 /* this section will remove after finalized and run from master.do file 
@@ -28,7 +32,7 @@ cd "~\Corrona LLC\Biostat Data Files - Registry Data\RA\monthly\Transition\analy
 *******************************************************************************************************************************/
 
 // this data includes all office visits and any event forms 
-use bv_raw\fv_event_instances, clear  
+use bv_raw\bv_event_instances, clear  
 
 tab dw_event_type_acronym if visit_date!="" 
 tab dw_event_type_acronym if visit_date=="" 
@@ -88,7 +92,8 @@ save temp\temp_radrug, replace
 *list  dw_event_instance_uid subject_number c_effective_event_date dw_event_type_acronym study_acronym source_acronym  full_version if full_version=="", noobs ab(20)  
 
 ********************************
-use subject_number visitdate dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid  using "clean_table\1_3_conmeds", clear  
+// 2025-01-14 add $datacut for all data in clean_table folder 
+use subject_number visitdate dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid  using "clean_table\1_3_conmeds_$datacut", clear  
 
 drop if site_number>=997 
 sort subject_number visitdate dw_event_type_acronym 
@@ -99,7 +104,7 @@ save temp\temp_conmedvt, replace
 
 *********************************
 
-use subject_number visitdate c_effective_event_date c_event_created_date dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid using "clean_table\1_7_allcomor", clear  
+use subject_number visitdate c_effective_event_date c_event_created_date dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid using "clean_table\1_7_allcomor_$datacut", clear  
 
 keep if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU" 
 bysort dw_event_instance_uid: drop if _n>1 
@@ -113,7 +118,7 @@ save temp\temp_comorvt, replace
 
 
 ********************************
-use subject_number visitdate  dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version infkey dw_event_instance_uid using "clean_table\1_8_allinf", clear  
+use subject_number visitdate  dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version infkey dw_event_instance_uid using "clean_table\1_8_allinf_$datacut", clear  
 
 keep if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU"   
 
@@ -135,89 +140,103 @@ save temp\temp_infvt, replace
 
 **************************************
 
+*2024-12-09 revise to use clean_table 1_4_alllabs 
+
 // for RF, CCP, CRP, ESR used for calculated variables in analysis data on viist level 
 *20240601 add Vectra VA score 
-use "bv_raw\bv_labs", clear 
-destring site_number full_version, replace 
-drop if site_number>=997 
+use "clean_table\1_4_alllabs_$datacut", clear 
 
-gen visitdate=date(c_effective_event_date, "YMD") 
-format visitdate %tdCCYY-NN-DD 
+assert visitdate<.
+assert full_version<.  
 
-replace visitdate=dofc(c_event_created_date) if visitdate==. 
-
-list dw_event_instance_uid subject_number c_effective_event_date c_event_created_date full_version study_acronym source dw_event_type_acronym if full_version==. & site_number<999, noobs ab(20) 
+keep if lab_img_type==1 
 
 preserve 
-keep subject_number visitdate dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid 
-bysort subject_number visitdate: drop if _n>1
+keep subject_number visitdate dw_event_type_acronym site_number c_provider_id full_version lab_img_dt 
+sort subject_number visitdate lab_img_dt 
+bysort subject_number visitdate: drop if _n<_N 
 save temp_labvisit, replace 
 restore 
 
 gen lab_name=""
-foreach x in ccp crp esr {
-    replace lab_name="`x'" if strpos(lower(lab_type), "`x'") >0   // rename lab_type to coll_subtype 05-01-2024 -06-01-24 by ENG mistake, v20240701 change back 
-} 
-replace lab_name="vectra_da" if strpos(lab_type, "Vectra")  
-replace lab_name="rf" if lab_type=="Rheumatoid factor (RF)" 
+foreach x in rf ccp crp esr  {
+    replace lab_name="`x'" if lab_img_name=="`x'"  
+}  
+
 keep if lab_name!="" 
-tab lab_name lab_type 
 
-gen labdate=date(lab_date, "YMD") 
-format labdate %tdCY-N-D 
+tab lab_name if result_value==. & lab_img_result_intpn==9771  
 
-destring result_value, gen(value) force 
+drop if result_value==. & lab_img_result_intpn==9771  // 860 dropped no lab value 
 
-gen value2=substr(result_value, 2, .) if substr(result_value, 1,1)=="<" | substr(result_value, 1,1)==">"
-replace value2=substr(result_value, 3,.) if substr(result_value, 1,2)=="<=" | substr(result_value, 1,2)=="<." 
-destring value2, replace 
+gen pos= result_value>=20  if result_value<. 
+replace pos=1 if lab_img_result_intpn==1000 
+replace pos=0 if lab_img_result_intpn==2000 & pos==. 
+replace pos=. if lab_name=="crp" | lab_name=="esr" 
 
-replace value=value2 if value==. 
-drop value2 
+/* run this part in 1_4_alllabs.do 
+tab lab_name if lab_uln_value<. 
+tab lab_name if lab_uln_value==. & lab_uln_value_raw!=""
+tab lab_uln_value_raw if lab_uln_value==., sort
 
-keep subject_number visitdate lab_name value result_unit labdate uln_value result_interpretation 
+* update ulper limited value: lab_uln_value, current as missing if raw data has any charactors 
+cap drop lab_uln 
+clonevar lab_uln=lab_uln_value_raw if lab_uln_value==. 
+replace lab_uln=subinstr(lab_uln, "<=", "", .) 
+replace lab_uln=subinstr(lab_uln, "1-0.5", "1", .) if lab_result_unit_code==150 // mg/dL 
+replace lab_uln=subinstr(lab_uln, "0.1.0", "1", .) if lab_result_unit_code==150 // mg/dL  
 
+replace lab_uln=subinstr(lab_uln, "-0.", ".", .) 
+replace lab_uln=subinstr(lab_uln, "0.0-", "", .) 
+replace lab_uln=subinstr(lab_uln, "00-", "", .)  
+replace lab_uln=subinstr(lab_uln, "0-", "", .)  
+replace lab_uln=subinstr(lab_uln, ">", "", .) 
+replace lab_uln=subinstr(lab_uln, "<", "", .) 
+replace lab_uln=subinstr(lab_uln, "=", "", .) 
+replace lab_uln=subinstr(lab_uln, "..", ".", .) 
+replace lab_uln=subinstr(lab_uln, "*", "", .) 
+replace lab_uln=subinstr(lab_uln, "`", "", .) 
+replace lab_uln=subinstr(lab_uln, "mg/L", "", .) 
+replace lab_uln=subinstr(lab_uln, "mg/l", "", .) 
+replace lab_uln=subinstr(lab_uln, "mg/dL", "", .) 
+replace lab_uln=subinstr(lab_uln, "o", "0", .) 
+replace lab_uln=subinstr(lab_uln, ",", ".", .) 
+replace lab_uln=subinstr(lab_uln, ".0.", ".", .) 
+replace lab_uln=subinstr(lab_uln, "/", ".", .) 
+
+replace lab_uln=subinstr(lab_uln, "-", "", .) 
+replace lab_uln="0.8" if lab_uln=="0.80." 
+
+destring lab_uln, gen(uln) force 
+
+export excel subject_number visitdate lab_name lab_uln_value_raw uln lab_uln_value if uln<. using "temp\alllabs_update_uln", sheet(updated, modify) firstrow(var) 
+export excel subject_number visitdate lab_name lab_uln_value_raw uln lab_uln_value if uln==. & lab_uln="" using "temp\alllabs_update_uln", sheet(unupdated, modify) firstrow(var) 
+
+replace lab_uln_value=uln if lab_uln_value==. 
+*/
+
+keep subject_number visitdate lab_name result_value lab_img_dt lab_result_unit_code lab_uln_value pos 
 duplicates drop 
 
-sort subject_number visitdate lab_name labdate value 
-by subject_number visitdate lab_name: drop if _n<_N & labdate< labdate[_N]  & value[_N] <. // keep later lab value if duplicates & laest lab data have lab value: 10 dropped
 
-by subject_number visitdate lab_name: drop if _n<_N  & value<=value[_N] & labdate <= labdate[_N] // keep higher value and/or later lab date if duplicate : 86 dropped
+sort subject_number visitdate lab_name lab_img_dt result_value 
+by subject_number visitdate lab_name: drop if _n<_N & lab_img_dt<=lab_img_dt[_N]  & result_value[_N] <. // keep later lab value if duplicates : 12 dropped
+drop lab_img_dt 
 
 unique subject_number visitdate lab_name 
 
-reshape wide value result_unit result_interpretation uln_value labdate , i(subject_number visitdate) j(lab_name) string 
+reshape wide result_value lab_result_unit_code lab_uln_value pos, i(subject_number visitdate) j(lab_name) string 
 
-rename result_unitcrp crp_unit 
-drop result_unit* uln_valueesr  uln_valuevectra_da 
-for any rf ccp crp esr vectra_da: rename valueX X 
-for any rf ccp crp: rename uln_valueX X_uln  
+drop posesr poscrp lab_result_unit_codeccp lab_uln_valueccp lab_result_unit_codeesr lab_uln_valueesr lab_result_unit_coderf lab_uln_valuerf
 
-
-for any rf ccp: gen Xpos=X>=20 if X<. 
-for any rf ccp: replace Xpos=1 if result_interpretationX=="positive" 
-for any rf ccp: replace Xpos=0 if result_interpretationX=="negative" & Xpos==. 
-drop *_interpretation* 
+for any rf ccp:    rename posX Xpos  
+for any rf ccp crp esr: rename result_valueX X 
+rename lab_result_unit_codecrp crp_unit  
+rename lab_uln_valuecrp ul_crp 
  
-gen crptype=1 if crp_unit=="mg/L" | crp_unit=="mcg/L"
-replace crptype=2 if crp_unit=="mg/dL" 
+gen crptype=1 if crp_unit==160 | crp_unit==130	 // mg/L, mcg/L
+replace crptype=2 if crp_unit==150  			 // "mg/dL" 
 
-destring crp_uln, gen(ul_crp) force 
-
-gen crp_ul=substr(crp_uln, 2,.) if ul_crp==. & substr(crp_uln, 1,1)=="<" 
-replace crp_ul=substr(crp_uln, 3,.) if substr(crp_uln, 1,2)== "<="  
- 
-destring crp_ul, gen(crp_ul2) force 
-
-replace crp_ul2=0.8 if crp_ul== "0.80."
-replace crp_ul2=0.5 if crp_ul== ".0.5" 
-replace crp_ul2=4   if crp_ul== " = 4"
-replace crp_ul2=10  if crp_ul== "10 mg/L"
-replace crp_ul2=0.3 if crp_ul== ".0.30"
-replace crp_ul2=80  if crp_ul=="80mg/dL" 
-replace crp_ul2=0.8 if crp_ul==".0.8" 
-
-replace ul_crp=crp_ul2 if ul_crp==. 
 replace crptype=1 if ul_crp>=4 & ul_crp<=10 & crptype==. & crp<. 
 replace crptype=2 if ul_crp>=.4 & ul_crp<=1 & crptype==. & crp<. 
 
@@ -232,66 +251,78 @@ lab define pos 0 negative 1 positive, modify
 for any rf ccp: lab val Xpos pos 
 
 lab var crp_mgl "CRP(mg/L)" 
-lab var rf "RF value"
+lab var rf "RF value" 
 lab var ccp "CCP value" 
 lab var crp "CRP value" 
-lab var vectra_da "Vactra DA score" 
-
-lab var crp_unit "CRP unit" 
-lab var rfpos "RF positive"
+lab var rfpos "RF positive" 
 lab var ccppos "CCP positive" 
-for any rf ccp: lab val Xpos pos 
 
 unique subject_number visitdate 
 
-keep subject_number visitdate ccp crp esr rf rfpos ccppos crp_mgl vectra_da 
+keep subject_number visitdate ccp crp esr rf rfpos ccppos crp_mgl 
 sort subject_number visitdate 
 merge 1:1 subject_number visitdate using temp_labvisit 
 drop _m 
+
 sort subject_number visitdate 
+
 save temp\temp_rfccp, replace 
 erase temp_labvisit.dta 
 
+ 
 ********************************************************
-// for erosion, deformity, joint space narrowing in analysis data on visit level 
-use "bv_raw\bv_imaging", clear  
-destring full_version site_number, replace 
+// for erosion, deformity, joint space narrowing in analysis data on visit level  
+use "clean_table\1_4_alllabs_$datacut", clear  
 
-gen visitdate=date(c_effective_event_date, "YMD") 
-format visitdate %tdCCYY-NN-DD 
+keep if lab_img_type==2 
 
-replace visitdate=dofc(c_event_created_date) if visitdate==.  
+/*
+tab img_finding if lab_img_result_raw!="" & lab_img_result_intpn==. & lab_img_result==., m  
+tab img_finding lab_img_result_intpn if lab_img_result_raw!="" , m 
+tab img_finding lab_img_result_intpn, m  
+tab lab_img_name if img_finding==., m 
+*/
 
-drop if site_number>=997 
-list dw_event_instance_uid subject_number c_effective_event_date c_event_created_date full_version study_acronym source dw_event_type_acronym if full_version==. & site_number<999, noobs ab(20) 
 preserve 
-keep subject_number visitdate dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid 
+keep subject_number visitdate dw_event_type_acronym site_number c_provider_id full_version 
 bysort subject_number visitdate: drop if _n>1
-save temp_imagingvisit, replace 
+save temp_imagingvisit2, replace 
 restore 
 
-keep if imaging_finding=="deformity" | imaging_finding=="erosions" | imaging_finding=="joint space narrowing" 
-replace imaging_finding="jt_sp_narrow" if imaging_finding=="joint space narrowing" 
+keep if img_finding==2 | img_finding==4| img_finding== 5 
 
-keep if result!="" 
-rename imaging_finding image
-keep subject_number visitdate image result 
+drop if lab_img_result_intpn==.  //46 dropped 
+keep subject_number visitdate img_finding lab_img_result_intpn lab_img_dt 
 
-gen result_code=0 if result=="not present"  
-replace result_code=1 if result=="old" 
-replace result_code=2 if result=="present" 
-replace result_code=3 if result=="new" 
-replace result_code=4 if result=="old and new" 
+*keep if imaging_finding=="deformity" | imaging_finding=="erosions" | imaging_finding=="joint space narrowing" 
+*replace imaging_finding="jt_sp_narrow" if imaging_finding=="joint space narrowing" 
 
-lab define result 0 none 1 present 2 old 3 new 4 "old and new", modify 
-lab val result_code result 
+keep subject_number visitdate img_finding lab_img_result_intpn lab_img_dt 
+duplicates drop 
 
-drop result 
-rename result_code result 
+gen result=0     if lab_img_result_intpn==4  
+replace result=1 if lab_img_result_intpn==7  
+replace result=2 if lab_img_result_intpn==5 
+replace result=3 if lab_img_result_intpn==2 
+replace result=4 if lab_img_result_intpn==6 
 
-sort subject_number visitdate image result 
-by subject_number visitdate image result: drop if _n<_N 
-by subject_number visitdate image: drop if _n<_N 
+lab define result 0 none 1 present  2 old 3 new 4 "old and new", modify 
+lab val result result 
+
+tab result lab_img_result_intpn, m 
+
+decode img_finding, gen(image) 
+replace image="jt_sp_narrow" if image=="joint space narrowing" 
+
+unique subject_number visitdate image lab_img_dt
+
+sort subject_number visitdate image lab_img_dt result
+by subject_number visitdate image lab_img_dt: gen drp=1 if _n<_N 
+by subject_number visitdate image: replace drp=1 if _n<_N 
+
+tab drp 
+drop if drp==1
+drop drp lab_img_dt lab_img_result_intpn img_finding 
 
 reshape wide result, i(subject_number visitdate) j(image) string 
 
@@ -304,12 +335,33 @@ lab var erosions "Erosions"
 lab var jt_sp_narrow "Joint space narrowing" 
 
 sort subject_number visitdate 
-merge 1:1 subject_number visitdate using temp_imagingvisit 
+merge 1:1 subject_number visitdate using temp_imagingvisit2 
 drop _m 
 sort subject_number visitdate
-save temp\temp_image, replace 
+// Ying to compare the difference for revision from Oct 24 to Dec 24
+*corcf deformity erosions jt_sp_narrow using temp\temp_image, id(subject_number visitdate) 
 
-erase temp_imagingvisit.dta  
+save temp\temp_image2, replace 
+
+erase temp_imagingvisit2.dta  
+*********************************************************
+/*
+use temp\temp_image2, clear 
+
+foreach x in deformity erosions jt_sp_narrow{
+    clonevar `x'2=`x' 
+	replace `x'=1 if `x'2==2 
+	replace `x'=2 if `x'2==2 
+}
+
+for any deformity erosions jt_sp_narrow: rename X X2 
+merge 1:1 subject_number visitdate using temp\temp_image 
+
+for any deformity erosions jt_sp_narrow: tab X X2, nolabe 
+*/
+
+
+***************
 
 
 *****************************************************************************
@@ -328,7 +380,10 @@ destring full_version site_number, replace
 
 drop if visitdate==. 
 ds *_code, has(type string) v(32) 
-destring outpt_visit_rheum_calc_code, replace 
+
+// 2025-01-14 LG: variable changed to x_outpt_visit_rheum_code
+*destring outpt_visit_rheum_calc_code, replace 
+*destring x_outpt_visit_rheum_code, replace // already numeric, no replace 
 
 * data issue clean 
 replace infections_since_yes_no=lower(infections_since_yes_no)
@@ -342,6 +397,7 @@ replace labs_imaging_coll_code=1 if labs_imaging_coll=="checked"
 *** variables with  
 lab define ny 0 no 1 yes, modify 
 
+// 2025-01-14 taking out outpt_visit_rheum_calc from list. Not in data 
 #delimit; 
 local list 
 pregnant_since
@@ -419,7 +475,7 @@ x_outpt_visit_rheum
 outpt_visit_pcp
 outpt_visit_er 
 outpt_visit_oth 
-outpt_visit_rheum_calc 
+
 
 drink_none drinks_status
 smoke_ever_100 smoke_current smoke_regular smoke_start smoke_quit 
@@ -438,7 +494,8 @@ kidney_function_yn
 lipid_panel_yn
 liver_function_yn
 ra_diag_results_yn 
-vitamin_d_yn
+vitamin_d_yn 
+
 conmed_yes_no 
  ; 
 #delimit cr 
@@ -721,7 +778,7 @@ lab var wpai_ability_affected  "RA affected your ability to do your regular dail
 lab var su_meds_yes_no  "You are not taking any of these medications"	
 *lab var med_probs_none  "You have not had any of these medical conditions"	
 *lab var outpt_visit  "Had outpatient doctor visit since last form"	
-lab var outpt_visit_rheum  "Rheumatologist visit"	
+lab var x_outpt_visit_rheum  "Rheumatologist visit"	
 lab var outpt_visit_pcp  "premary care"	
 lab var outpt_visit_er  "emergency room"	
 lab var outpt_visit_oth  "other doctor visit"	
@@ -800,6 +857,7 @@ lab var fractures_yes_no  "Never had Fractures"
 lab var fractures_since_yes_no  "Fractures since last visit"
 lab var joint_deformity  "Clinical joint deformity"
 lab var md_meds_yes_no  "TM: not taking any these meds; V11/RCC: not taken any NSAIDs"
+lab var conmed_yes_no "Conmed drug use"
 
 lab var osteo_meds_yes_no  "ever received an osteoporosis drug"
 lab var osteo_meds_since_yes_no  "received an osteoporosis drug since last visit"
@@ -842,17 +900,19 @@ lab var liver_function_yn "Liver function results available"
 lab var ra_diag_results_yn "RA diagnostic results available"
 lab var vitamin_d_yn "Vitamin D results available"
 
-lab var outpt_visit_rheum_calc "outpt_visit_rheum calc RCC and v9-11"
-lab var outpt_dr_visits_count_calc "How many outpatient doctors visits did you have?"
-lab var outpt_any_calc "Calculation to determine if the patient had any outpatient visits standardized across edc sources"
-lab var surgeries_any_ra_calc "Calculation to determine if the patient had any ra surgeries standardized across edc sources"
-lab var surgeries_any_ra_count_calc "Calculation to determine total surgeries standardized across edc sources"
+// 2025-01-14 several _calc vars are not available 
+*lab var outpt_visit_rheum_calc "outpt_visit_rheum calc RCC and v9-11"
+*lab var outpt_dr_visits_count_calc "How many outpatient doctors visits did you have?"
+*lab var outpt_any_calc "Calculation to determine if the patient had any outpatient visits standardized across edc sources"
+*lab var surgeries_any_ra_calc "Calculation to determine if the patient had any ra surgeries standardized across edc sources"
+*lab var surgeries_any_ra_count_calc "Calculation to determine total surgeries standardized across edc sources"
 lab var labs_imaging_coll "Blood or imaging tests Parent Y/N - blood or imaging tests listed in the registry Lab-Imaging Form available for reporting"
 lab var hospitalization_calc "Calculation to determine if the patient had any hospitalizations standardized across edc sources"
 lab var di_calc "mHAQ"
 lab var haq_di_calc "HAQ-DI"
-*lab var cdai "CDAI" 
-
+// 2025-01-14 changed from cdai to cdai_calc
+lab var cdai_calc "CDAI" 
+*
 lab var hosp_count "How many times were you Admitted to the hospital"
 destring hosp_count, replace 
 
@@ -984,8 +1044,6 @@ by subject_number: replace weight_lb=weight_lb[_n-1] if weight_lb<70 & weight_lb
 by subject_number: replace weight_lb=weight_lb[_n+1] if weight_lb<70 & weight_lb[_n+1]>=70 & weight_lb[_n+1]<. 
 drop ck everck 
 
-
-
 unique subject_number visitdate 
 sort subject_number visitdate 
 save temp\bv_longitudinal_clean, replace 
@@ -1011,6 +1069,16 @@ drop if visitdate==.
 
 
 /*
+v20250113
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                           899
+        from master                       326  (_merge==1)
+        from using                        573  (_merge==2)
+
+    matched                           508,025  (_merge==3)
+    -----------------------------------------
+
     Result                           # of obs.
     -----------------------------------------
     not matched                           640
@@ -1030,8 +1098,9 @@ drop _m
 
 assert study_acronym!="" & source_acronym!="" 
 
+// 2025-01-14 changed to temp_image2
 sort subject_number visitdate 
-merge 1:1 subject_number visitdate using temp\temp_image
+merge 1:1 subject_number visitdate using temp\temp_image2
 replace event_instance=0 if _m==3  
 gen imaging_yn=_m>=2
 drop _m 
@@ -1049,10 +1118,11 @@ lab var hx_bio_en "Ever used/started DOI"
 *lab var conmeds_yes_no "current use conmon medications" 
 lab var rheum_visits "RA visits"
 
-lab var surgeries_any_ra_calc "surgeries caused by RA"
+// 2025-01-14 surgeries_any_ra_calc not found 
+*lab var surgeries_any_ra_calc "surgeries caused by RA"
 lab var hospitalization_calc "hospitalization" 
-
-foreach x in surgeries_any_ra_calc hospitalization_calc {
+// surgeries_any_ra_calc 
+foreach x in hospitalization_calc {
 	gen `x'2=`x'=="yes" if `x'!=""
 	drop `x' 
 	rename `x'2 `x' 
@@ -1061,7 +1131,7 @@ foreach x in surgeries_any_ra_calc hospitalization_calc {
 drop parent_study_acronym dw_site_uid dw_subject_uid 
 drop doi_*_code 
 
-destring outpt_dr_visits_count_calc, replace 
+*destring outpt_dr_visits_count_calc, replace 
 drop if site_number>=997 // test site
 
 rename bp_systolic seatedbp1
@@ -1146,44 +1216,46 @@ lab var c_event_last_modified_date "Last modified date"
 
 * ENG calculated -no tested value drop for now 
 *drop wpai_absent wpai_present wpai_wrkimp wpai_actimp conmed_yes_no* outpt_visit_rheum_calc outpt_dr_visits_count_calc outpt_any_calc surgeries_any_ra_count_calc  surgeries_any_ra_calc  hospitalization_calc
+*rename cdai cdai_calc
 cap drop cdai_calc 
 drop c_dw_event_instance_key  dupvisits visit_date dupvisits visit_date curr_no_dmards curated_weight 
 cap drop c_edc_event_instance_key
-drop wpai_absent wpai_present wpai_wrkimp wpai_actimp hospitalization_calc surgeries_any_ra_calc surgeries_any_ra_count_calc  // ENG created, need to test future 
+drop wpai_absent wpai_present wpai_wrkimp wpai_actimp hospitalization_calc 
+cap drop surgeries_any_ra_calc surgeries_any_ra_count_calc  // ENG created, need to test future 
 drop c_effective_event_date
 
 * drop cpai_absent w
 
 assert study_acronym!="" & source_acronym!=""  
 
+rename drink_perday drink_n_perday // drink_n_perday is standardized name 
+
+replace drink_n_perday=50 if  drink_n_perday>50 & drink_n_perday<. 
+
+// LG 2024-10-02 talked with Ying, this part was not decided yet
+*replace bp_systolic=220 if bp_systolic>300 & bp_systolic<. 
+*replace bp_diatolic=150 if bp_diatolic>130 & bp_diatolic<. 
+
+*replace bp_systolic=. if bp_diatolic<60 
+*replace bp_diatolic=. if bp_
+ 
+
+
 sort subject_number visitdate 
-save clean_table\1_2_allvisits.dta, replace 
+
+codebook visitdate // [01oct2001,07jan2025] ==> [01jan1900,31dec2024]
+*count if visitdate>d(31dec2024) //144
+
+count if visitdate>d($cutdate)
+drop if visitdate>d($cutdate)
+
+compress
+save clean_table\1_2_allvisits_$datacut, replace 
 
 * Rich 2024-05-14 email site confirm subject 015001015 two visit after death date (2014-10-01) are date enter issue, need to remove 
 
 count if visitdate>d(1Oct2014) & subject_number=="01001015" 
 
 
-for any event_instance radrug conmedvt comorvt infvt exit image rfccp: cap erase temp_X.dta 
+for any event_instance radrug conmedvt comorvt infvt exit image2 rfccp: cap erase "temp\temp_X.dta" 
 
-
-/***********************************************
-	
-*use clean_table\1_2_allvisits, clear 
-
-
-* Leslie suggestion if on weekend, we can put in weekday, no visit should be on weekend 
-
-gen wkday=dow(visitdate) 
-tab wkday 
-replace visitdate=visitdate-2 if wkday==0  // Sunday 
-replace visitdate=visitdate-1 if wkday==6  // Saterday 
-
-
-
-
-
-
-  
-
- 

@@ -1,4 +1,7 @@
 /*
+
+2024-10-30 added more biosimilars to drug key, fixed errors for some drugtxt extractions
+
 2024-08-12
 use v20240801 data to test code revision 
 changed line #927 and revise it in 2.1 data. It will cause some 1-day episodes for some drugs with start reported in drug plan. For example 100236829 simponi_aria started 1-12 and stopped 1-13.
@@ -134,15 +137,15 @@ to create 2.1 radrugexpdetail
 2023-08-28 continue working on cleaning
 
 2023-08-30 continue cleaning using v20230825 build
+
 */
 
-cap log close
+*cap log close
+*cd "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-10-01"
 
-cd "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-08-01\temp\LGtest_2024-08-12"
-log using 1_6_drugrecord_2024-08-12.log, append //replace
-*log using 1_6_drugrecord_2024-08-01.log, append //replace  
+*log using temp\1_6_drugrecord_2024-10-30.log, append //replace  
 
-use "..\bv_raw\bv_drugs_of_interest", clear
+use bv_raw\bv_drugs_of_interest, clear
 
 mdesc *, ab(32)
 
@@ -159,6 +162,8 @@ sum site_number
 *list full_version study source dw_event_type site_number subject_number drug_name drug_name_txt drug_status c_effective_event drug_date most_recent_dose_date if drug_date=="" & most_recent_dose_date!="", noobs ab(16)
 
 //2024-07-02  1 available to replace 
+// 2024-11-01: n=3
+
 replace drug_date=most_recent_dose_date if drug_date=="" & most_recent_dose_date!=""
 
 
@@ -167,12 +172,13 @@ replace drug_date=most_recent_dose_date if drug_date=="" & most_recent_dose_date
 // v20240117 ticket #542 closed 
 *count if  drug_name=="" & drug_name_txt=="" & (dw_event_type=="EN"|dw_event_type=="FU") //v20240501: n=0; v20240401 n=3; v20240122, n=0 391
 
+count if drug_name=="" & drug_name_txt==""  
 
-count if drug_name=="" & drug_name_txt==""  // v20240701z: 540 v20240601: n=441; v20240501: n=370; v20240331 n=296; v20240305 n=236 90 at v20240202 70 at v20240130 55 at v20231215 v20231201 3 at v20231110 55 at v20231103; 76 at v20231027 20 at v20231020 6 at v20231013 112==>v20231006 81,678
+// v20250113: 1,647; v20241203: 1,430; v20241201: 1,418; v2024-11-01: 1,383; v20240701z: 540 v20240601: n=441; v20240501: n=370; v20240331 n=296; v20240305 n=236 90 at v20240202 70 at v20240130 55 at v20231215 v20231201 3 at v20231110 55 at v20231103; 76 at v20231027 20 at v20231020 6 at v20231013 112==>v20231006 81,678
 
-
-groups route route_code, missing ab(16)
 /*
+groups route route_code, missing ab(16)
+
 v20240701 same 
 v20240501 
   +--------------------------------------------------------------+
@@ -188,7 +194,6 @@ v20240501
   |            subcutaneous (SC)          200    38033      3.48 |
   |  subcutaneous (SC) injection          201     3190      0.29 |
   +--------------------------------------------------------------+
-*/
 
 //IV injection==>RCC only 
 groups study source_acronym dw_event_type_acronym if route_code==212, sepby(study source)
@@ -199,17 +204,22 @@ groups study source_acronym dw_event_type_acronym if route_code==201 , sepby(stu
 
 //SC injection  
 groups study source_acronym dw_event_type_acronym if route_code==200, sepby(study source)
+*/
 
 // No IM injection in preTM data 
 tab route if strpos(source_acronym, "PRETM")
 tab drug_name if route!=""
+
 // preTM injection was coded as SC injection 
 *br if route_code==201 & strpos(hdr_study_source_acronym, "PRETM")
 
 ////////////////////////////////////////////////////////////////////
 // Step A.1. clean drug keys first before combining visits 
 ////////////////////////////////////////////////////////////////////
-drop if drug_name=="" & drug_name_txt==""  // v20240701z: 540; v20240331 n=296; 55 for v20231103 76 for v20231027 20 as of v20231020; 6 as of v20231013; ticket #446 resolved 
+
+drop if drug_name=="" & drug_name_txt==""  
+
+// v2024-11-01 1,383; v20240701z: 540; v20240331 n=296; 55 for v20231103 76 for v20231027 20 as of v20231020; 6 as of v20231013; ticket #446 resolved 
 
 
 // 2024-03-06 drop 4 rows with c_effective_event missing, checked drug_date, also missing, ticket #558 
@@ -219,7 +229,8 @@ gen drugkey =""
 
 destring route_code, replace 
 
-do "~\Corrona LLC\Biostat Data Files - RA\Setup\setup_code\ODBC\1_6_01_clean_drug_freetext_2024-05-02.do"
+do "~\Corrona LLC\Biostat Data Files - RA\Setup\setup_code\ODBC\1_6_01_clean_drug_freetext_2024-11-12.do"
+
 
 //////////////////////////////////////////////////////////////////////////////////////
 // 		test route_code results 
@@ -235,8 +246,8 @@ keep if  route=="" & route_code!=.& drugkey!="simponi_aria"
 list study source dw_event_type subject_number drugtxt drugkey route_code in 1/25, noobs ab(16)
 restore 
 
-groups study source dw_event_type drugtxt drugkey route_code if route=="" & route_code!=., missing ab(16) sepby(drugkey)
-groups dw_event_type drugtxt drugkey route_code if route=="" & route_code!=. & strpos(dw_event_type,"TAE") , missing ab(16) sepby(drugkey)
+*groups study source dw_event_type drugtxt drugkey route_code if route=="" & route_code!=., missing ab(16) sepby(drugkey)
+*groups dw_event_type drugtxt drugkey route_code if route=="" & route_code!=. & strpos(dw_event_type,"TAE") , missing ab(16) sepby(drugkey)
 
 //////////////////////////////////////////////////////////////////////////////////////
 // 		test drugkey results 
@@ -253,14 +264,22 @@ count if othra!="" & nonra!="" // expecting 0
 
 tab drugkey if othra!="",m // expecting 0
 
-*groups drugkey othra drugtxt,  ab(16) sepby(drugkey) 
+groups drugkey othra drugtxt if othra!="",  ab(16) sepby(drugkey) 
+/*
+  +-----------------------------------------------+
+  | drugkey     othra   drugtxt   Freq.   Percent |
+  |-----------------------------------------------|
+  |  invest   ocruvas   ocruvas       4    100.00 |
+  +-----------------------------------------------+
+*/
+
+replace drugkey="" if othra!=""
 
 tab drugkey if nonra!="",m // expecting 0
 
 *groups drugkey drugtxt if drugkey=="other_ra"
 
 //	3. check drugkey vs drugtxt where drugkey have values 
-groups drugkey drugtxt , ab(16) sepby(drugkey)
 
 //	4. after checking, it is ok to change drug name based on drugkey, and drug_name already have a raw copy saved.
  
@@ -268,7 +287,9 @@ replace drugkey="other_ra" if othra!="" & drugkey=="" // & drug_name==""
 
 replace drugkey="other_non_ra" if nonra!="" & drugkey=="" //& drug_name==""
 
-mdesc drugkey // v20240701z: n=351; v20240501 n=235; v20240401 n=195; v20240331 n=200; 307 at v20240202; 303 at v20240130;291 at v20231215 build; 282 at v20231124 build; 276 at v20231110 build; 275 missing at v20231103 build;252 missing, cannot find any clue from txt 
+mdesc drugkey 
+
+// v20250113: 117; 2024-12-04: 103; 2024-11-01: n=101; 2024-10-01: 92; v20240701z: n=351; v20240501 n=235; v20240401 n=195; v20240331 n=200; 307 at v20240202; 303 at v20240130;291 at v20231215 build; 282 at v20231124 build; 276 at v20231110 build; 275 missing at v20231103 build;252 missing, cannot find any clue from txt 
 
 //	5. list where drugkey has value and drug_name shows differently==> TM MD data entry errors; TAE does not have drug_name field  
 groups drugkey drugtxt drug_name, missing ab(16) sepby(drugkey)
@@ -286,64 +307,122 @@ groups drugkey drug_name drugtxt if drugkey=="", missing
 // do not need this part : 1. TAE does not have drug_name value at all; 2. after testing, some drugs are entered into wrong drug names.
 *local if drug_name=="" & drugkey!= "other_ra" 
 // already kept original drug_name as drug_name_raw, safe to change/correct drug_name
-replace drug_name= "abatacept (Orencia)" if drugkey== "orencia" //& `if' 
-replace drug_name= "adalimumab (Humira)" if drugkey== "humira" //& `if' 
-replace drug_name= "adalimumab other" if drugkey== "humira_bs"  //& `if' 
-replace drug_name= "anakinra (Kineret)" if drugkey== "kineret" //& `if' 
-replace drug_name= "azathioprine (Imuran)" if drugkey== "imuran" //& `if' 
-replace drug_name= "baricitinib (Olumiant)" if drugkey== "olumiant" //& `if' 
-replace drug_name= "certolizumab pegol (Cimzia)" if drugkey== "cimzia" //& `if' 
-replace drug_name= "cyclosporine (Neoral)" if drugkey== "cyclosporine" //& `if' 
+// 2024-10-29 also replace drug_name_code 
+replace drug_name= "abatacept (Orencia)" if drugkey== "orencia"  
+replace drug_name= "adalimumab (Humira)" if drugkey== "humira"  
+replace drug_name= "adalimumab-aacf (Idacio)" if drugkey== "idacio"  
+replace drug_name= "adalimumab-adaz (Hyrimoz)" if drugkey== "hyrimoz"  
+replace drug_name= "adalimumab-adbm (Cyltezo)" if drugkey== "cyltezo"  
+replace drug_name= "adalimumab-aqvh (Yusimry)" if drugkey== "yusimry"  
+replace drug_name= "adalimumab-atto (Amjevita)" if drugkey== "amjevita"  
+replace drug_name= "adalimumab-bwwd (Hadlima)" if drugkey== "hadlima"  
+replace drug_name= "adalimumab-fkjp (Hulio)" if drugkey== "hulio"  
+replace drug_name= "adalimumab other" if drugkey== "humira_bs" 
+ 
+replace drug_name= "anakinra (Kineret)" if drugkey== "kineret" 
+replace drug_name= "azathioprine (Imuran)" if drugkey== "imuran" 
+replace drug_name= "baricitinib (Olumiant)" if drugkey== "olumiant" 
+replace drug_name= "certolizumab pegol (Cimzia)" if drugkey== "cimzia" 
+replace drug_name= "cyclosporine (Neoral)" if drugkey== "cyclosporine"  
+replace drug_name= "etanercept (Enbrel)" if drugkey== "enbrel" 
+replace drug_name= "etanercept-szzs (Erelzi)" if drugkey== "erelzi" 
+replace drug_name= "etanercept other" if drugkey== "enbrel_bs"  
+replace drug_name= "golimumab (Simponi)" if drugkey== "simponi"  
+replace drug_name= "golimumab (Simponi Aria)" if drugkey== "simponi_aria"  
+replace drug_name= "hydroxychloroquine (Plaquenil)" if drugkey== "plaquenil" 
 
-replace drug_name= "etanercept (Enbrel)" if drugkey== "enbrel" //& `if' 
-replace drug_name= "etanercept-szzs (Erelzi)" if drugkey== "erelzi" //& `if' 
-replace drug_name= "etanercept other" if drugkey== "enbrel_bs" //& `if' 
-replace drug_name= "golimumab (Simponi)" if drugkey== "simponi" //& `if' 
-replace drug_name= "golimumab (Simponi Aria)" if drugkey== "simponi_aria" //& `if'  
+replace drug_name= "infliximab (Remicade)" if drugkey== "remicade" 
+replace drug_name= "infliximab-abda (Renflexis)" if drugkey== "renflexis"  
+replace drug_name= "infliximab-dyyb (Inflectra)" if drugkey== "inflectra" 
+replace drug_name= "infliximab (Avsola)" if drugkey=="avsola" 
+replace drug_name= "infliximab-qbtx (Ixifi)" if drugkey=="ixifi" 
+replace drug_name= "infliximab other" if drugkey== "remicade_bs" 
 
-replace drug_name= "hydroxychloroquine (Plaquenil)" if drugkey== "plaquenil" //& `if' 
-replace drug_name= "infliximab (Remicade)" if drugkey== "remicade" //& `if' 
-replace drug_name= "infliximab-abda (Renflexis)" if drugkey== "renflexis" //& `if' 
-replace drug_name= "infliximab-dyyb (Inflectra)" if drugkey== "inflectra" //& `if' 
-replace drug_name= "infliximab (Avsola)" if drugkey=="avsola" //& `if' 
-replace drug_name= "infliximab other" if drugkey== "remicade_bs" //& `if' 
+replace drug_name= "rituximab (Rituxan)" if drugkey== "rituxan" 
+replace drug_name= "rituximab (Truxima)" if drugkey== "truxima" 
+replace drug_name= "rituximab (Ruxience)" if drugkey=="ruxience"  
+replace drug_name= "rituximab (Riabni)" if drugkey=="riabni"  // 2024-10-30 LG added 
+replace drug_name= "rituximab other" if drugkey== "rituxan_bs"  
 
-replace drug_name= "rituximab (Rituxan)" if drugkey== "rituxan" //& `if' 
-replace drug_name= "rituximab (Truxima)" if drugkey== "truxima" //& `if' 
-replace drug_name= "rituximab (Ruxience)" if drugkey=="ruxience" //& `if' 
-replace drug_name= "rituximab other" if drugkey== "rituxan_bs" //& `if' 
-
-replace drug_name= "sarilumab (Kevzara)" if drugkey== "kevzara" //& `if' 
-replace drug_name= "tocilizumab (Actemra)" if drugkey== "actemra" //& `if' 
-replace drug_name= "tofacitinib extended-release (Xeljanz XR)" if drugkey== "xeljanz_xr" //& `if' 
-replace drug_name= "tofacitinib (Xeljanz)" if drugkey== "xeljanz" //& `if' 
-replace drug_name= "upadacitinib (Rinvoq)" if drugkey== "rinvoq" //& `if' 
-
-
-replace drug_name= "leflunomide (Arava)" if drugkey== "arava" //& `if' 
+replace drug_name= "sarilumab (Kevzara)" if drugkey== "kevzara" 
+replace drug_name= "tocilizumab (Actemra)" if drugkey== "actemra"  
+replace drug_name= "tofacitinib extended-release (Xeljanz XR)" if drugkey== "xeljanz_xr" 
+replace drug_name= "tofacitinib (Xeljanz)" if drugkey== "xeljanz"  
+replace drug_name= "upadacitinib (Rinvoq)" if drugkey== "rinvoq"  
+replace drug_name= "leflunomide (Arava)" if drugkey== "arava"  
 replace drug_name= "methotrexate (mtx)" if drugkey== "mtx" 
-replace drug_name= "minocycline (Minocin)" if drugkey== "minocin" //& `if' 
-replace drug_name= "prednisone" if drugkey== "pred" //& `if' 
-replace drug_name= "methylprednisolone" if drugkey== "meth_pred" //& `if' 
-
-replace drug_name= "triamcinolone (Kenalog)" if drugkey== "kenalog" //& `if' 
-replace drug_name= "sirukumab" if drugkey== "sirukumab" //& `if'  // (Plivensia) 
-
-replace drug_name= "auranofin (Ridaura)" if drugkey== "ridaura" //& `if' 
-replace drug_name= "Cuprimine" if drugkey== "cuprimine" //& `if' 
-
-replace drug_name= "sulfasalazine (Azulfidine)" if drugkey== "azulfidine" //& `if' 
-
-replace drug_name= "investigational agent" if drugkey== "invest" //& `if'  
-
+replace drug_name= "minocycline (Minocin)" if drugkey== "minocin"  
+replace drug_name= "prednisone" if drugkey== "pred" 
+replace drug_name= "methylprednisolone" if drugkey== "meth_pred" 
+replace drug_name= "triamcinolone (Kenalog)" if drugkey== "kenalog" 
+replace drug_name= "sirukumab" if drugkey== "sirukumab" 
+replace drug_name= "auranofin (Ridaura)" if drugkey== "ridaura"  
+replace drug_name= "Cuprimine" if drugkey== "cuprimine"  
+replace drug_name= "sulfasalazine (Azulfidine)" if drugkey== "azulfidine"  
+replace drug_name= "investigational agent" if drugkey== "invest"   
 replace drug_name= "RA medication other (specify)" if drugkey=="other_ra" 
-
 replace drug_name= "Non-RA medication other (specify)" if drugkey=="other_non_ra" 
+
+clonevar drug_name_code_raw=drug_name_code
+replace drug_name_code= 100 if drugkey== "orencia" 
+replace drug_name_code= 110 if drugkey== "humira" 
+replace drug_name_code= 122 if drugkey== "idacio" 
+replace drug_name_code= 123 if drugkey== "hyrimoz" 
+replace drug_name_code= 124 if drugkey== "cyltezo" 
+replace drug_name_code= 126 if drugkey== "yusimry" 
+replace drug_name_code= 121 if drugkey== "amjevita"
+replace drug_name_code= 127 if drugkey== "hadlima" 
+replace drug_name_code= 128 if drugkey== "hulio"
+  
+replace drug_name_code= 118 if drugkey== "humira_bs"  
+replace drug_name_code= 130 if drugkey== "kineret" 
+replace drug_name_code= 501 if drugkey== "imuran" 
+replace drug_name_code= 320 if drugkey== "olumiant" 
+replace drug_name_code= 140 if drugkey== "cimzia" 
+replace drug_name_code= 511 if drugkey== "cyclosporine" 
+replace drug_name_code= 150 if drugkey== "enbrel" 
+replace drug_name_code= 161 if drugkey== "erelzi" 
+replace drug_name_code= 158 if drugkey== "enbrel_bs"  
+replace drug_name_code= 170 if drugkey== "simponi"  
+replace drug_name_code= 171 if drugkey== "simponi_aria"  
+replace drug_name_code= 520 if drugkey== "plaquenil" 
+
+replace drug_name_code= 180 if drugkey== "remicade" 
+replace drug_name_code= 191 if drugkey== "renflexis"  
+replace drug_name_code= 193 if drugkey== "inflectra" 
+replace drug_name_code= 192 if drugkey== "avsola" 
+replace drug_name_code= 194 if drugkey== "ixifi" 
+replace drug_name_code= 188 if drugkey== "remicade_bs" 
+
+replace drug_name_code= 200 if drugkey== "rituxan" 
+replace drug_name_code= 211 if drugkey== "truxima" 
+replace drug_name_code= 212 if drugkey=="ruxience"  // 2024-10-29 LG added manually. No code for ruxience in raw bv_drugs_of_interest data.
+replace drug_name_code= 213 if drugkey=="riabni"  	// 2024-10-30 LG added manually. No code for ruxience in raw bv_drugs_of_interest data.
+replace drug_name_code= 201 if drugkey== "rituxan_bs"  
+
+replace drug_name_code= 220 if drugkey== "kevzara" 
+replace drug_name_code= 240 if drugkey== "actemra"  
+replace drug_name_code= 301 if drugkey== "xeljanz_xr" 
+replace drug_name_code= 300 if drugkey== "xeljanz"  
+replace drug_name_code= 310 if drugkey== "rinvoq"  
+replace drug_name_code= 530 if drugkey== "arava"  
+replace drug_name_code= 540 if drugkey== "mtx" 
+replace drug_name_code= 5111 if drugkey== "minocin"  // LG 2024-10-29 don't know why there are 4 digits 
+replace drug_name_code= 730 if drugkey== "pred" 
+replace drug_name_code= 731 if drugkey== "meth_pred" // LG added, no code in raw bv_drugs_of_interest data 
+replace drug_name_code= 750 if drugkey== "kenalog" 
+replace drug_name_code= 230 if drugkey== "sirukumab" 
+replace drug_name_code= 580 if drugkey== "ridaura"  
+replace drug_name_code= 570 if drugkey== "cuprimine"  
+replace drug_name_code= 551 if drugkey== "azulfidine"  
+replace drug_name_code= 980 if drugkey== "invest"   
+replace drug_name_code= 990 if drugkey=="other_ra" 
+replace drug_name_code= 99020 if drugkey=="other_non_ra" 
 
 
 groups drugkey drug_name drug_name_raw drugtxt if drugkey=="" & drug_name!="", missing ab(16)
 
-replace drug_name="" if drugkey==""
+replace drug_name="" if drugkey=="" // 53 2024-12-04: 64
 
 // 2023-09-21 also update drug_category
 clonevar drug_category_code_raw=drug_category_code
@@ -351,6 +430,7 @@ clonevar drug_category_code_raw=drug_category_code
 destring drug_category_code, replace 
 
 groups drug_category drug_category_code, missing ab(16)
+
 /*
   +--------------------------------------------------------------------+
   |                drug_category   drug_category_~e    Freq.   Percent |
@@ -373,11 +453,12 @@ foreach x in xeljanz xeljanz_xr rinvoq olumiant {
     replace drug_category_code=390 if drugkey=="`x'" & drug_category_code!=390
 }
 
-foreach x in actemra amjevita avsola cimzia enbrel enbrel_bs erelzi humira humira_bs inflectra kevzara kineret orencia remicade remicade_bs renflexis rituxan rituxan_bs simponi simponi_aria sirukumab truxima ruxience{
+foreach x in actemra  cimzia enbrel erelzi enbrel_bs humira idacio hyrimoz cyltezo yusimry amjevita hadlima hulio humira_bs kevzara kineret orencia remicade renflexis avsola inflectra ixifi remicade_bs  rituxan ruxience truxima riabni rituxan_bs simponi simponi_aria sirukumab{
     replace drug_category_code=250 if drugkey=="`x'" & drug_category_code!=250
 }
 
-foreach x in arava azulfidine cyclosporine imuran minocin mtx plaquenil{
+// 2024-10-30 put cuprimine and ridaura as cDMARDs
+foreach x in arava azulfidine cyclosporine imuran minocin mtx plaquenil cuprimine ridaura {
     replace drug_category_code=690 if drugkey=="`x'" & drug_category_code!=690
 }
 
@@ -400,14 +481,15 @@ replace drug_category_code=. if drugkey==""
 /////////////////////////////////////////////////////////////////////////////////////////
 cap drop generic_key
 gen generic_key=""
-replace generic_key="adalimumab" if drugkey=="humira"|drugkey=="humira_bs"|drugkey=="amjevita"
+// 2024-10-29 added more biosimilars for humira 
+replace generic_key="adalimumab" if inlist(drugkey,"humira", "amjevita", "idacio", "hyrimoz", "cyltezo", "yusimry", "hadlima", "hulio", "humira_bs")
 replace generic_key="etanercept" if drugkey=="enbrel"|drugkey=="enbrel_bs"|drugkey=="erelzi"
 replace generic_key="certolizumab_pegol" if drugkey=="cimzia" // 2023-12-27 use underline for easier creating hxX
-replace generic_key="infliximab" if drugkey=="remicade"|drugkey=="remicade_bs"|drugkey=="inflectra"|drugkey=="renflexis"|drugkey=="avsola"
+replace generic_key="infliximab" if inlist(drugkey, "remicade","remicade_bs","inflectra","renflexis","avsola", "ixifi")
 replace generic_key="golimumab" if drugkey=="simponi"|drugkey=="simponi_aria"
 replace generic_key="abatacept" if drugkey=="orencia"
 replace generic_key="tocilizumab" if drugkey=="actemra"
-replace generic_key="rituximab" if drugkey=="rituxan"|drugkey=="rituxan_bs"|drugkey=="ruxience"|drugkey=="truxima"
+replace generic_key="rituximab" if inlist(drugkey,"rituxan","ruxience","truxima","riabni","rituxan_bs")
 replace generic_key="sarilumab" if drugkey=="kevzara"
 replace generic_key="tofacitinib" if drugkey=="xeljanz"|drugkey=="xeljanz_xr"
 replace generic_key="baricitinib" if drugkey=="olumiant"
@@ -419,7 +501,6 @@ replace generic_key="corticosteroids" if drug_category_code==710
 // 2023-10-25 add csDMARDs and prednisone
 replace generic_key=drugkey if drug_category_code==690|drug_category_code==900 & drugkey!="other_ra"
 
-groups drug_category_code generic_key drugkey, missing ab(16) sepby(drug_category_code generic_key)
 
 // drop nonRA data 
 drop if drugkey=="other_non_ra"|drugkey=="" // v20240401: n=903; 851 at v20240305 build; 977 at v20231115 build; 972 at v20231103 build; 948
@@ -427,7 +508,10 @@ drop if drugkey=="other_non_ra"|drugkey=="" // v20240401: n=903; 851 at v2024030
 // 2024-03-06 
 drop if generic_key=="" // drop other non-RA or other_ra // 3,247 rows dropped 
 
-save clean_bv_drugs_of_interest_drugkey, replace 
+groups drug_category_code generic_key drugkey, missing ab(16) sepby(drug_category_code generic_key)
+
+compress 
+save temp\clean_bv_drugs_of_interest_drugkey, replace 
 
 ////////////////////////////////////////////////////////////////////////////////////////
 //	Step A.4. Extract numeric values from dose/freq_txt and fill into dose/freq values 	
@@ -435,18 +519,31 @@ save clean_bv_drugs_of_interest_drugkey, replace
 
 // 2023-09-12 clean dose/freq using ying's code for TAE then de-duplicate drug rows.
 
-use clean_bv_drugs_of_interest_drugkey, clear 
+*use clean_bv_drugs_of_interest_drugkey, clear 
 
 // 2024-07-10 use drug_v7 if both dose_value and dose_txt are missing 
 count if dose_value==. & dose_txt=="" & dose_v7!="" // 52,987
 clonevar dose_txt_raw=dose_txt 
 replace dose_txt=dose_v7 if dose_value==. & dose_txt=="" & dose_v7!=""
-// 2024-07-10, if dose_txt is "q 8 wks", dose_value showing 8. Try to fix it next time.
-for any 000000010: list subject_number c_effective_event_date drugkey drug_date drug_status dose_value dose_unit freq_value freq_unit dose_txt dose_txt_raw dose_v7 if subject_number=="X" & drugkey=="remicade" , noobs ab(16)
+
 
 do "~\Corrona LLC\Biostat Data Files - RA\Setup\setup_code\ODBC\1_6_02_clean_dose_freq_txt_2024-02-05.do"
+// 2024-07-10, if dose_txt is "q 8 wks", dose_value showing 8. Try to fix it next time.
+// 2024-12-04 only fixed using hard coding 
 
-save clean_bv_drugs_of_interest_dosefreq, replace 
+for any 000000010: list subject_number c_effective_event_date drugkey drug_date drug_status dose_value dose_unit freq_value freq_unit_code dose_txt dose_txt_raw dose_v7 if subject_number=="X" & drugkey=="remicade" , noobs ab(16)
+
+for any 000000010:  replace freq_value=8 if subject_number=="X" & drugkey=="remicade" & (dose_txt=="q 8 wks"|dose_v7=="q 8 wks")
+for any 000000010:  replace freq_unit_code=930 if subject_number=="X" & drugkey=="remicade" & (dose_txt=="q 8 wks"|dose_v7=="q 8 wks")
+
+for any 000000010:  replace dose_value=. if subject_number=="X" & drugkey=="remicade" & dose_value==8
+
+compress 
+save temp\clean_bv_drugs_of_interest_dosefreq, replace 
+
+// 2024-10-30 update: no missing values for drug_name_code after manually assignment; but some new drugs do not have codings in EDC yet.
+ 
+mdesc drug_name drug_name_code
 
 // test added route results 
 groups route_code dose_txt freq_txt if dose_txt!=""|freq_txt!=""
@@ -467,7 +564,7 @@ restore
 
 // v20231201 build still open v20231124 build (started v20231117 build)ticket #519 missing dose_txt enbrel 50 mg Q 2 wk, extracted as 50.2 mg example: 
 // v20231208 build ticket #519 closed 
-list study source dw_event_type subject_number c_effective_event_date drugkey dose_value* dose_unit_code dose_txt freq_value* freq_unit_code freq_txt if subject_number=="107010315" & c_effective_event_date=="2008-08-06", noobs ab(24)
+*list study source dw_event_type subject_number c_effective_event_date drugkey dose_value* dose_unit_code dose_txt freq_value* freq_unit_code freq_txt if subject_number=="107010315" & c_effective_event_date=="2008-08-06", noobs ab(24)
 
 
 mdesc drugkey drug_name, ab(32) // no missing 
@@ -480,7 +577,7 @@ mdesc drugkey drug_name, ab(32) // no missing
 //	Step B.1. Making date format consistent. 
 ////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////
-use clean_bv_drugs_of_interest_dosefreq, clear 
+*use clean_bv_drugs_of_interest_dosefreq, clear 
 
 // v20231013 build, a mix of XX or UK  
 clonevar drug_date_raw=drug_date
@@ -503,8 +600,8 @@ rename date drug_date
 gen drug_year=year(drug_date)
 tab drug_year 
 
-count if drug_year<. & (drug_year <1960|drug_year>2024) // 295
-count if drug_year<1960 // 113 
+count if drug_year<. & (drug_year <1960|drug_year>2024) // 297
+count if drug_year<1960 // 115 
 *br subject_number dw_event_type c_effective_event_date c_event_created_date drug_date if drug_year<. & (drug_year <1960|drug_year>2024)
 *br c_event_created_date
 *br hdr_effective_event_date
@@ -556,6 +653,7 @@ rename drug_plan drug_plan_raw
 rename drug_plan_code drug_plan 
 codebook drug_plan 
 groups drug_plan drug_plan_raw drug_status, missing ab(16) 
+
 /*
   +------------------------------------------------------------------------------------------------------+
   |                        drug_plan                      drug_plan_raw   drug_status    Freq.   Percent |
@@ -575,9 +673,10 @@ groups drug_plan drug_plan_raw drug_status, missing ab(16)
   |                                .                                             stop   108992      9.95 |
   |                                .                                          unknown    95980      8.77 |
   +------------------------------------------------------------------------------------------------------+
-
 */
+
 groups study source dw_event_type if drug_plan==9, noobs ab(16) // RCC TAE 
+
 groups study source dw_event_type if drug_plan==9 & drug_status=="start", noobs ab(16) 
 
 groups site_number study source dw_event_type if drug_plan==8, noobs ab(16)  
@@ -596,9 +695,11 @@ replace drug_status="continue" if cont==1
 sort subject_number report_date drug_date 
 list subject_number report_date drug_date drug_date_raw drug_status drug_plan dose_value freq_value reason_1 cont if subject_number=="001010217" & strpos(drug_name, "Xelj"), sepby(report_date) noobs ab(16)
 */
+
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Step B.3.	If drug_date is missing, then use c_effective_event_date to fill in drug_date
 // dw_event_type_acronym
+
 groups study source_acronym  drug_plan drug_plan_raw if drug_date==. , missing noobs ab(20) sepby(study source) 
 mdesc most_recent_dose_date if drug_date==.
 
@@ -673,12 +774,14 @@ mdesc drug_date drug_plan
 
 drop cont drugtxt othra nonra
 
-save clean_bv_drugs_of_interest_temp, replace 
+compress 
+save temp\clean_bv_drugs_of_interest_temp, replace 
+*save temp\clean_bv_drugs_of_interest_temp_2024-10-30, replace 
 
 *use clean_bv_drugs_of_interest_temp, clear 
 mdesc study_acronym source dw_event_type, ab(24)
 
-cap erase clean_bv_drugs_of_interest_drugkey.dta
+cap erase temp\clean_bv_drugs_of_interest_drugkey.dta
 ///////////////////////////////////////////////////////////////////////////////////////
 // STEP B3. Clean Drug date by adding events from 1.2 allvisits data, then link with MD/PT data  
 ////////////////////////////////////////////////////////////////////////////////////////
@@ -689,17 +792,35 @@ cap erase clean_bv_drugs_of_interest_drugkey.dta
 // 2024-02-16 using updated 2.3 keyvisitvars data
 // 2024-03-06 using updated 1_2_allvisits data 
 // 2024-03-07 1_2_allvisits data updated 
+/*
+use clean_table\1_2_allvisits_2024-12-04.dta, clear
+for any 000000000: list subject_number visitdate study_acronym source_acronym dw_event_type_acronym full_version if subject_number=="X", noobs ab(16)
 
-use "..\clean_table\1_2_allvisits.dta", clear
 mdesc visitdate // 1 missing, fixed  
+
+// 2024-12-04 drop if visitdate is 12/30/2024
+
+count if subject_number=="001020146" & visitdate==d(30dec2024)
+list subject_number visitdate c_event_created_date c_event_last_modified_date if visitdate==d(30dec2024), noobs ab(16)
+
+  +-----------------------------------------------------------------------+
+  | subject_number    visitdate   c_event_created_~e   c_event_last_mod~e |
+  |-----------------------------------------------------------------------|
+  |      001020146   2024-12-30   01dec2024 19:34:42   01dec2024 20:08:31 |
+  +-----------------------------------------------------------------------+
+
+
+drop if subject_number=="001020146" & visitdate==d(30dec2024)
 *list study_source dw_event_type site_number subject_number visitdate if visitdate==., noobs ab(24)
 
 mdesc study_acronym source dw_event_type, ab(24) // v20240601 missing study_acronym, emailed YS
 groups study_acronym source dw_event_type, missing ab(16) sepby(study_acronym) // no TAE 
-
+*/
 *format visitdate %tdCCYY-NN-DD  
 *drop if visitdate==. // 2024-02-12 let Ying know 
 
+use clean_table\1_2_allvisits_$datacut, clear
+mdesc visitdate
 keep subject_number visitdate //study_source dw_event_type
 unique subject_number visitdate 
 sort subject_number visitdate 
@@ -724,12 +845,15 @@ lab var next_visit "next visit date, if available"
 keep subject_number linked_visit visitdate visit_index* enroll_visit last_visit prev_visit next_visit
 mdesc *
 
-sort subject_number visitdate 
-save allvisits_link_visit, replace 
+sort subject_number visitdate
+ 
+save temp\allvisits_link_visit, replace 
+
+*use temp\allvisits_link_visit, clear 
+*list subject_number visitdate visit_indexn visit_indexN if subject_number=="000000000", noobs ab(16)
 
 
-
-use clean_bv_drugs_of_interest_temp, clear 
+use temp\clean_bv_drugs_of_interest_temp, clear 
 
 
 // 2023-11-15, for typo of drug date, eg. 1020004 actemra 01aug2023 vs. visitdate 18aug2020, correct 
@@ -752,6 +876,7 @@ sum drug_year
 -------------+---------------------------------------------------------
    drug_year |  1,259,412    2012.846    13.71116        111       3012
 */
+
 gen report_year=year(report_date)
 sum report_year 
 
@@ -759,8 +884,13 @@ mdesc dif_date
 
 tab report_year 
 sum dif_date if drug_year<=2024, d
-count if dif_date>0 // v20240801: n=2,767; v20240701z: n=2,720; v20240601: n=2,654; v20240501: n=2,599; v20240331 n=2,563; 2,512 v20240305 1573, count again after all cleaning 
-count if dif_date>183 // v20240801: n=534; v20240701z: n=531; v20240601: n=524; v20240501: n=521; v20240331 n=520 518;387 needs to be replaced 
+count if dif_date>0 
+
+// v20241202: 3,094;v20240801: n=2,767; v20240701z: n=2,720; v20240601: n=2,654; v20240501: n=2,599; v20240331 n=2,563; 2,512 v20240305 1573, count again after all cleaning 
+
+count if dif_date>183 
+
+// v20241203: 553; v20240801: n=534; v20240701z: n=531; v20240601: n=524; v20240501: n=521; v20240331 n=520 518;387 needs to be replaced 
 
 // list some examples for decision making 
 /*
@@ -779,7 +909,9 @@ tab drug_plan  if dif_date>365 & drug_year>2024,m
                            Total |        182      100.00
 */
 
-count if dif_date>183 & drug_year<=2024 // v20240801: n=352; v20240701z: n=349; v20240601:n=342; 339; 338; 336;199; 203
+count if dif_date>183 & drug_year<=2024
+ 
+// v20241202: 371; v20240801: n=352; v20240701z: n=349; v20240601:n=342; 339; 338; 336;199; 203
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // B3 Execution
@@ -789,17 +921,19 @@ count if dif_date>183 & drug_year<=2024 // v20240801: n=352; v20240701z: n=349; 
 drop if dif_date>0 & strpos(dw_event_type, "TAE") & drug_plan==. // v20240701: n=1,111; v20240601:n=1,104; v20240501: n=1,094; v20240306:1,092 v20240130 185; v20231208: 207; 184
 
 // B3b
-replace drug_date=report_date if drug_year>2024 // 182
+replace drug_date=report_date if drug_year>2025 // 182 2025-01-14 change to 2025
+
 // 2024-07-02 
 replace drug_date=report_date if drug_year<1960 // 113
 
 // B3c
-replace drug_date=report_date if drug_year<=2024 & drug_year<. & dif_date>183 & dif_date<. // 166==>170
+replace drug_date=report_date if drug_year<=2025 & drug_year<. & dif_date>183 & dif_date<. // 166==>170 2024-01-14 changed to 2025
 
 // re-test distribution after B3a-c
 cap drop dif_date
 gen dif_date=drug_date-report_date 
 sum dif_date 
+
 /*
 v20240701:
     Variable |        Obs        Mean    Std. Dev.       Min        Max
@@ -819,13 +953,64 @@ for any 001020004: list study_source dw_event_type subject_number report_date dr
 
 *use ".\temp_data\clean_bv_drugs_of_interest_cleaned_dates_v20240202", clear
 // after linked visit step 
-clonevar visitdate=drug_date
 
+clonevar visitdate=drug_date
+codebook visitdate 
+
+list subject_number visitdate drug_date if visitdate==d(30dec2024), noobs ab(16)
+/*
+  +------------------------------------------+
+  | subject_number    visitdate    drug_date |
+  |------------------------------------------|
+  |      001020146   2024-12-30   2024-12-30 |
+  |      001020146   2024-12-30   2024-12-30 |
+  |      001020146   2024-12-30   2024-12-30 |
+  +------------------------------------------+
+*/
+// 2024-12-04 drop 
+*count if visitdate>d(31dec2024) //256
+count if visitdate>d($cutdate)
+
+drop if visitdate>d($cutdate)
+
+// 2024-12-05 also check if there's visitdate beyond datacut 
+/*list subject_number visitdate drug_date if visitdate>d(30nov2024), noobs ab(16)
+
+  +------------------------------------------+
+  | subject_number    visitdate    drug_date |
+  |------------------------------------------|
+  |      254010199   2024-12-02   2024-12-02 |
+  |      254010199   2024-12-02   2024-12-02 |
+  |      064011225   2024-12-02   2024-12-02 |
+  |      064011225   2024-12-02   2024-12-02 |
+  |      015001197   2024-12-02   2024-12-02 |
+  |------------------------------------------|
+  |      064010774   2024-12-02   2024-12-02 |
+  |      064010774   2024-12-02   2024-12-02 |
+  |      015010659   2024-12-02   2024-12-02 |
+  |      607498423   2024-12-02   2024-12-02 |
+  |      183473089   2024-12-02   2024-12-02 |
+  |------------------------------------------|
+  |      015010712   2024-12-02   2024-12-02 |
+  +------------------------------------------+
+
+drop if visitdate>d(30nov2024) // 11*/
 // only merge with linked visit then add prev, next, enroll_visit and last_visit after linked_visit is filled in 
 sort subject_number visitdate 
-merge m:1 subject_number visitdate using allvisits_link_visit, keepus(linked_visit) 
+
+merge m:1 subject_number visitdate using temp\allvisits_link_visit, keepus(linked_visit) 
 
 /*
+v20250113 
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                       454,677
+        from master                   422,287  (_merge==1)
+        from using                     32,390  (_merge==2)
+
+    matched                           872,793  (_merge==3)
+    -----------------------------------------
+
 v20240801 
     Result                           # of obs.
     -----------------------------------------
@@ -834,16 +1019,6 @@ v20240801
         from using                     31,583  (_merge==2)
 
     matched                           858,712  (_merge==3)
-    -----------------------------------------
-
-v20240701z 
-    Result                           # of obs.
-    -----------------------------------------
-    not matched                       444,476
-        from master                   412,925  (_merge==1)
-        from using                     31,551  (_merge==2)
-
-    matched                           856,342  (_merge==3)
     -----------------------------------------
 */
 
@@ -869,8 +1044,9 @@ drop if _m==2
 drop _m 
 drop visitdate 
 
+codebook drug_date // [01jun1960,31dec2024]
 // after all link dates are not missing, merge with prev, next visit, etc.
-merge m:1 subject_number linked_visit using allvisits_link_visit, keepus(visit_index* enroll_visit last_visit prev_visit next_visit)
+merge m:1 subject_number linked_visit using temp\allvisits_link_visit, keepus(visit_index* enroll_visit last_visit prev_visit next_visit)
 
 *list study_source dw_event_type subject_number linked_visit drugkey drug_date if _m==1, noobs ab(16) sepby(subject_number)
 
@@ -925,14 +1101,16 @@ restore
 
 *replace drug_date=linked_visit-1 if drug_status==3 & strpos(drug_date_raw,"XX") & day(drug_date)==1 & year(drug_date)==year(linked_visit) & month(drug_date)==month(linked_visit) & day(linked_visit)!=1
 //drug_status!=3 & 
+
 replace drug_date=linked_visit if strpos(drug_date_raw,"XX") & day(drug_date)==1 & year(drug_date)==year(linked_visit) & month(drug_date)==month(linked_visit) & day(linked_visit)!=1
+
 // v20240801: n=68,374; v20240601: n=68,374; v20240331, n=68,367 (68,340 real changes made)(68,518 real changes made)
 
 // 2024-07-02 check 101010781 from humira to xeljanz 
 // 2024-08-12 re-check--for 101010781, humira stop date will be the same as xeljanz start date, which will cause issue for allinits data; but needs to be fixed later than here; for 100236829, the logic of simponi_aria start and stop within the same month is corrected.
-for any 101010781: list subject_number drugkey linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" & inlist(drugkey,"humira","xeljanz"), sepby(linked_visit) noobs ab(16)
+*for any 101010781: list subject_number drugkey linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" & inlist(drugkey,"humira","xeljanz"), sepby(linked_visit) noobs ab(16)
 
-for any 100236829:list source dw_event_type subject_number drugkey report_date linked_visit visit_indexn drug_date drug_date_raw drug_plan drug_status if subject_number=="X" & drugkey=="simponi_aria", sepby(linked_visit) noobs ab(16)
+*for any 100236829:list source dw_event_type subject_number drugkey report_date linked_visit visit_indexn drug_date drug_date_raw drug_plan drug_status if subject_number=="X" & drugkey=="simponi_aria", sepby(linked_visit) noobs ab(16)
 
 // after 
 *for any 001010085: list study_source dw_event_type subject_number c_effective_event generic_key drugkey drug_plan drug_date drug_date_raw linked_visit dose_value dose_unit freq_value if drugkey=="actemra" & subject_number=="X", noobs ab(8) sepby(generic_key)
@@ -1010,15 +1188,6 @@ v20240701:
   |       RA         TM         FU     470     24.80 |
   |       RA         TM        RFU       2      0.11 |
   +--------------------------------------------------+
-
-v20240601 
-  +--------------------------------------------------+
-  | study_~m   source~m   dw_eve~m   Freq.   Percent |
-  |--------------------------------------------------|
-  |       RA         TM         EN    1462     70.70 |
-  |       RA         TM         FU     604     29.21 |
-  |       RA         TM        RFU       2      0.10 |
-  +--------------------------------------------------+
 */
 
 ////////////////////////////////////////////////////////
@@ -1053,7 +1222,8 @@ sort study source_acronym dw_event_type_acronym subject_number report_date drugk
 // 2023-11-15 dose status 5= change 9= unknown  
 by study source_acronym dw_event_type_acronym subject_number report_date drugkey coll_group_ordinal drug_date: gen ck_extra_cont2=1 if _n==2 & drug_status==2 & drug_status[1]==2 & dose_status[1]==5 & dose_status==9 & drug_date_raw!=""
 
-tab ck_extra_cont2 // 0 as of v20231110  
+tab ck_extra_cont2 
+// v20241202: 2; 1 as of v20241101  
 
 //////////////////////////////////////////////////////////////
 ////////////////////////	C2.2	Execution 
@@ -1067,9 +1237,13 @@ drop ck_extra_cont2
 
 /////////////////////////////////////////////////////////////////////////////////////////
 //////////// C3.a Execution: drop duplicated drug rows 
+
+// 2024-11-04 adding reason_1/3_code to the list of vars, so reason_i, reason_i_code, reason_i_category/code are consistent
 cap drop dup_drug
 
-duplicates drop subject_number report_date drugkey coll_group_ordinal drug_date drug_plan drug_status dose_status dose_value dose_unit dose_txt freq_value freq_unit freq_txt reason_1 reason_2 reason_3 reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, force //v20240701z: n=9,634; v20240601: n=9,491; v20240331: n=9,167; v20240305: n=9,022; v20240202: n=5,916; v20231215: n=5,783; v20231201 n=5,821; v20231110 n=5,755; v20231027 n=5,650 v20231020 5,679; v20231013 569 v20230915 8,608
+duplicates drop subject_number report_date drugkey coll_group_ordinal drug_date drug_plan drug_status dose_status dose_value dose_unit dose_txt freq_value freq_unit freq_txt reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, force 
+
+//v20240113: n=10,756; v20240701z: n=9,634; v20240601: n=9,491; v20240331: n=9,167; v20240305: n=9,022; v20240202: n=5,916; v20231215: n=5,783; v20231201 n=5,821; v20231110 n=5,755; v20231027 n=5,650 v20231020 5,679; v20231013 569 v20230915 8,608
 
 
 /////////////////////////////////////////////////////////////////////////////////////////
@@ -1079,7 +1253,8 @@ duplicates drop subject_number report_date drugkey coll_group_ordinal drug_date 
 //////////// C3.b Execution: drop duplicated drug rows 
 cap drop dup_drug2
 
-duplicates drop subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, force 
+duplicates drop subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, force 
+
 // v20240701z: n=3,342; v20240601: n=3,338; v20240331: n=3,231; v20240305: n=3,227; v20231215: n=2,260; v20231201: n=2,253; v20231110: 2,285; v20231027: 2,172 v20231020:2,225; v20231013==> 460 v20230915: 3,069
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1087,10 +1262,13 @@ duplicates drop subject_number report_date drugkey drug_date drug_plan drug_stat
 * clean if multiple start rows with current dose on one visitdate -keep the last dose as current dose 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /* check duplicates without drug_status and dose_status */
-cap drop dup_drug3
-duplicates tag subject_number report_date drugkey drug_date drug_plan dose_value dose_unit_code  freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, gen(dup_drug3)
 
-tab dup_drug3 // v20240701z: n=1,304; v20240601:n=1,292; v20210331: n=1,106; v20240305: n=1,086; v20240202: n=528; v20240130: n=514; v20231208: 538 v20231115: 530; v20231110: 528; v20231103 542; v20231027 526; v20231020: 522; v20231013: 518 up to 1;1,002
+cap drop dup_drug3
+duplicates tag subject_number report_date drugkey drug_date drug_plan dose_value dose_unit_code  freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, gen(dup_drug3)
+
+tab dup_drug3 
+
+// v20240701z: n=1,304; v20240601:n=1,292; v20210331: n=1,106; v20240305: n=1,086; v20240202: n=528; v20240130: n=514; v20231208: 538 v20231115: 530; v20231110: 528; v20231103 542; v20231027 526; v20231020: 522; v20231013: 518 up to 1;1,002
 
 
 groups study source dw_event_type drug_plan if dup_drug3>0, missing ab(16)
@@ -1101,7 +1279,7 @@ destring full_version, replace
 
 cap drop dup_drug3_order
 // 20240307: added drug_plan 
-sort subject_number report_date drugkey drug_date drug_plan dose_value dose_unit_code freq_value freq_unit_code reason_1 reason_2 reason_3 full_version
+sort subject_number report_date drugkey drug_date drug_plan dose_value dose_unit_code freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code full_version
 by subject_number report_date drugkey drug_date drug_plan dose_value dose_unit_code freq_value freq_unit_code reason_1 reason_2 reason_3: gen dup_drug3_order=_n if dup_drug3==1
 tab dup_drug3_order 
 
@@ -1118,10 +1296,21 @@ drop dup_drug3
 // get some examples then decide if cleaning is needed ==> start-stop pairs with same dosage information
 // test without dose_unit_code and freq_unit_code
 cap drop dup_drug4
-duplicates tag subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3, gen(dup_drug4)
+duplicates tag subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code, gen(dup_drug4)
 
-tab dup_drug4 // v20231013 up to 2, check for next round 
+tab dup_drug4 
+
+// v20231013 up to 2, check for next round 
 /*
+v20250113
+  dup_drug4 |      Freq.     Percent        Cum.
+------------+-----------------------------------
+          0 |  1,261,786       99.93       99.93
+          1 |        824        0.07      100.00
+          2 |          6        0.00      100.00
+------------+-----------------------------------
+      Total |  1,262,616      100.00
+
 v20240701:
   dup_drug4 |      Freq.     Percent        Cum.
 ------------+-----------------------------------
@@ -1130,14 +1319,6 @@ v20240701:
           2 |          6        0.00      100.00
 ------------+-----------------------------------
       Total |  1,238,382      100.00
-
-  dup_drug4 |      Freq.     Percent        Cum.
-------------+-----------------------------------
-          0 |  1,233,634       99.96       99.96
-          1 |        536        0.04      100.00
-          2 |          6        0.00      100.00
-------------+-----------------------------------
-      Total |  1,234,176      100.00
 */
 
 ///////////////////////////////////////////////////////////////////////
@@ -1145,29 +1326,26 @@ v20240701:
 drop if dup_drug4==2 & dose_unit_code==. // 4 
 
 // use later version information as the main info 
-sort subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code
+sort subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code
 
-by subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code: gen dup_drug4_order=_n if dup_drug4==1
-tab dup_drug4_order // 273
+by subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code: gen dup_drug4_order=_n if dup_drug4==1
+tab dup_drug4_order // v20241202: 409; 273
 
 
-save 1_6_temp, replace 
+save temp\1_6_temp, replace 
 
-use 1_6_temp, clear 
 
 /////////////////////////////////////////////////////////////////
 // C4.1 Execution part 2: for dup_drug4==1, merge and update 
 preserve 
 keep if dup_drug4_order==1
 *recast str60 drug_plan reason_1 reason_2 reason_3, force 
-save step4_for_update, replace 
+save temp\step4_for_update, replace 
 restore 
 
 // update missing field if later version have missing values 
 drop if dup_drug4_order==1
-merge 1:1 subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code using step4_for_update, update
-
-groups reason_1 reason_1_category reason_1_category_code, missing ab(16)
+merge 1:1 subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code using temp\step4_for_update, update
 
 drop _m 
 drop dup_drug4*
@@ -1214,31 +1392,117 @@ dup_drug5_o |
 
 unique subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value freq_value dup_drug5 if dup_drug5_order!=2
 
-save 1_6_temp2, replace 
+save temp\1_6_temp2, replace 
 
-use 1_6_temp2, clear
+*use 1_6_temp2, clear
+
 preserve 
 keep if dup_drug5_order==2
-drop reason_2 reason_2_category reason_2_category_code reason_3 reason_3_category reason_3_category_code
+drop reason_2 reason_2_code reason_2_category reason_2_category_code reason_3 reason_3_code reason_3_category reason_3_category_code
 rename reason_1 reason_2 
 rename reason_1_category reason_2_category
 rename reason_1_category_code reason_2_category_code
-save dup_drug_5_2, replace 
+save temp\dup_drug_5_2, replace 
 restore 
 
 drop if dup_drug5_order==2
 duplicates drop subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value freq_value dup_drug5, force // 1
-merge 1:1 subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value freq_value dup_drug5 using dup_drug_5_2, update 
+merge 1:1 subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value freq_value dup_drug5 using temp\dup_drug_5_2, update 
 
 drop _m 
 drop dup_drug5*
 
-groups reason_1 reason_1_category reason_1_category_code, missing ab(16)
-groups reason_2 reason_2_category reason_2_category_code, missing ab(16)
-groups reason_3 reason_3_category reason_3_category_code, missing ab(16)
-// after 
-*list version study_source dw_event_type subject_number report_date drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code   freq_value  reason_1 reason_2 if subject_number=="100555356" & report_date==d(30jul2020) & drugkey=="meth_pred" , noobs ab(12) sepby(drug_date)
 
+//2024-11-04 manually fix the missing reason_code 
+replace reason_2_code=100 if reason_2=="active disease" & reason_2_code==.
+replace reason_2_code=170 if reason_2=="failure to maintain initial response (FR)" & reason_2_code==.
+replace reason_2_code=180 if reason_2=="inadequate initial response (IR)" & reason_2_code==.
+replace reason_2_code=260 if reason_2=="subject doing well (DW)" & reason_2_code==.
+
+/*
+  +------------------------------------------------------------------------------------------------------------------------+
+  |                                  reason_2   reason_2_code   reason_2_category   reason_2_category_~e   Freq.   Percent |
+  |------------------------------------------------------------------------------------------------------------------------|
+  |                            active disease             100       effectiveness                      1     495     14.17 |
+  |                            active disease               .       effectiveness                      1       1      0.03 |
+  |           alternative mechanism of action             110       effectiveness                      1     134      3.84 |
+  |                             disease flare             913       effectiveness                      1      41      1.17 |
+  | failure to maintain initial response (FR)             170       effectiveness                      1    1061     30.37 |
+  | failure to maintain initial response (FR)               .       effectiveness                      1       2      0.06 |
+  |          inadequate initial response (IR)             180       effectiveness                      1     751     21.49 |
+  |          inadequate initial response (IR)               .       effectiveness                      1       2      0.06 |
+  |                          lack of efficacy             900       effectiveness                      1      55      1.57 |
+  |                          no longer needed             920       effectiveness                      1      44      1.26 |
+  |                   subject doing well (DW)             260       effectiveness                      1     906     25.93 |
+  |                   subject doing well (DW)               .       effectiveness                      1       2      0.06 |
+  +------------------------------------------------------------------------------------------------------------------------+
+*/
+
+replace reason_2_code=240 if reason_2=="minor side effect (ME)" & reason_2_code==.
+replace reason_2_code=250 if reason_2=="serious side effect (SE)" & reason_2_code==.
+
+/* 
+
+  +--------------------------------------------------------------------------------------------------------------+
+  |                        reason_2   reason_2_code   reason_2_category   reason_2_category_~e   Freq.   Percent |
+  |--------------------------------------------------------------------------------------------------------------|
+  |                   drug toxicity             910              safety                      2      96      3.55 |
+  | fear of future side effect (FE)             230              safety                      2     917     33.89 |
+  |                       infection             912              safety                      2       6      0.22 |
+  |                      malignancy             911              safety                      2       2      0.07 |
+  |          minor side effect (ME)             240              safety                      2    1349     49.85 |
+  |          minor side effect (ME)               .              safety                      2       2      0.07 |
+  |        serious side effect (SE)             250              safety                      2     142      5.25 |
+  |        serious side effect (SE)               .              safety                      2       1      0.04 |
+  |     temporary interruption (TI)             280              safety                      2     191      7.06 |
+  +--------------------------------------------------------------------------------------------------------------+
+*/
+
+replace reason_2_code=160 if reason_2=="cost / co-pay / insurance (CP)" & reason_2_code==.
+replace reason_2_code=190 if reason_2=="frequency of administration (FA)" & reason_2_code==.
+replace reason_2_code=990 if reason_2=="other reason (OT)" & reason_2_code==.
+replace reason_2_code=191 if reason_2=="route of administration (RA)" & reason_2_code==.
+replace reason_2_code=270 if reason_2=="subject preference (PP)" & reason_2_code==.
+
+/*
+  +---------------------------------------------------------------------------------------------------------------+
+  |                         reason_2   reason_2_code   reason_2_category   reason_2_category_~e   Freq.   Percent |
+  |---------------------------------------------------------------------------------------------------------------|
+  |   cost / co-pay / insurance (CP)             160               other                      9     408     11.38 |
+  |   cost / co-pay / insurance (CP)               .               other                      9       1      0.03 |
+  |            formulary restriction             162               other                      9       2      0.06 |
+  | frequency of administration (FA)             190               other                      9      75      2.09 |
+  | frequency of administration (FA)               .               other                      9       1      0.03 |
+  |          improve compliance (IC)             200               other                      9      29      0.81 |
+  |        improve tolerability (IT)             210               other                      9      43      1.20 |
+  |                other reason (OT)             990               other                      9     491     13.70 |
+  |                other reason (OT)               .               other                      9       3      0.08 |
+  |                  peer suggestion             950               other                      9       1      0.03 |
+  |             physician preference             940               other                      9     261      7.28 |
+  |            recent journal report             930               other                      9       2      0.06 |
+  |                   recent lecture             932               other                      9       2      0.06 |
+  |     route of administration (RA)             191               other                      9      63      1.76 |
+  |     route of administration (RA)               .               other                      9       1      0.03 |
+  |          subject preference (PP)             270               other                      9    2198     61.33 |
+  |          subject preference (PP)               .               other                      9       2      0.06 |
+  |          withdrawn by FDA / Mfgr             960               other                      9       1      0.03 |
+  +---------------------------------------------------------------------------------------------------------------+
+  */
+  
+replace reason_3_code=280 if reason_3=="temporary interruption (TI)" & reason_3_code==.
+
+  /*
+  +--------------------------------------------------------------------------------------------------------------+
+  |                        reason_3   reason_3_code   reason_3_category   reason_3_category_~e   Freq.   Percent |
+  |--------------------------------------------------------------------------------------------------------------|
+  |                   drug toxicity             910              safety                      2       4      1.75 |
+  | fear of future side effect (FE)             230              safety                      2      78     34.21 |
+  |          minor side effect (ME)             240              safety                      2     110     48.25 |
+  |        serious side effect (SE)             250              safety                      2      18      7.89 |
+  |     temporary interruption (TI)             280              safety                      2      17      7.46 |
+  |     temporary interruption (TI)               .              safety                      2       1      0.44 |
+  +--------------------------------------------------------------------------------------------------------------+
+*/
 
 //////////////////	C4.3 
 // 2023-09-21 merge rows with reason and without reason, given other drug info are the same 
@@ -1268,7 +1532,7 @@ unique subject_number report_date drugkey drug_plan drug_date drug_status dose_v
 
 //////////////////	C5.1 if reported exactly the same drug date across different visits, keep one 
 cap drop dup_drug7
-duplicates tag subject_number drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code  freq_value freq_unit_code reason_1 reason_2 reason_3, gen(dup_drug7)
+duplicates tag subject_number drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code  freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code, gen(dup_drug7)
 
 tab dup_drug7 // v20231201 : 9% of data 
 
@@ -1277,22 +1541,24 @@ tab dup_drug7 // v20231201 : 9% of data
 ////////////////////////////////	C5.1	Execution
 
 cap drop dup_drug7
-duplicates drop subject_number drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code  freq_value freq_unit_code reason_1 reason_2 reason_3, force // v20240701z: n=68,971; v20240601: n=68,868; v20240331: n=68,660; v20240305: 68,571; v20240130: n=63,347 v20231215: n=62,867
+duplicates drop subject_number drugkey drug_date drug_plan drug_status dose_status dose_value dose_unit_code  freq_value freq_unit_code reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code, force 
+
+// v20240701z: n=68,971; v20240601: n=68,868; v20240331: n=68,660; v20240305: 68,571; v20240130: n=63,347 v20231215: n=62,867
 
 //////////////////////////////////////////////////////////////////////////////////////////////////
 ///////////////////////////// C5.2 check same dose and freq value, different dose/freq/unit code 
 
-duplicates tag subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3, gen(dup_drug8) 
+duplicates tag subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code, gen(dup_drug8) 
 tab dup_drug8 
 
 ////////////////////////////////////////////////
 //////////////////	C5.2 Execution
 
 cap drop dup_drug8
-duplicates drop subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3, force 
+duplicates drop subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code, force 
 //v20240701: n=1,241; v20240601:n=1,235; v20240331: n=1,214; v20240305: n=1,203; v20240202: n=1,071; v20240130: n=920; v20231215: n=903; 907
 
-unique subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3 // unique 
+unique subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code // unique 
 unique subject_number drugkey drug_date drug_plan drug_status dose_status dose_value freq_value
 
 
@@ -1312,11 +1578,9 @@ by subject_number drugkey drug_date drug_plan drug_status dose_status dose_value
 //////////////// Execution of C5.3 
 drop if dup_drug9indexn<dup_drug9indexN  & dup_drug9>=1
 //3,423==>3,403
+
 drop dup_drug9* freq_temp
 
-groups reason_1 reason_1_category reason_1_category_code, missing ab(16)
-groups reason_2 reason_2_category reason_2_category_code, missing ab(16)
-groups reason_3 reason_3_category reason_3_category_code, missing ab(16)
 //2024-04-24 checking Zach's question, 2024-05-02 decided not to use exact date from other drugs if the drug date was imputed from visitdate already.
 * for any 055010218: list version study_source dw_event_type subject_number report_date linked_visit generic_key drugkey drug_plan drug_date drug_date_raw visit_indexn if subject_number=="X" , noobs ab(12) sepby(linked_visit)
 
@@ -1387,26 +1651,27 @@ lab var dw_event_instance_uid		"event instance UID"
 lab var c_event_created_date	"created date"
 lab var c_event_last_modified_date	"last modified date"
 
-save 1_6_drugrecord_test_2024-08-12, replace 
+*save temp\1_6_drugrecord_test_2024-10-30, replace 
 // 2024-08-12 checking revised imputation of drug dates
 // original issue: in allinits data, adalimumab had stop date but humira did not have stop date. See if the stop date is fixed in 2.1 data. If the stop date is the same as on 2016-12-20 then 2.2 data should not have any problems?  
-for any 101010781: list subject_number drug_key linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" & inlist(drug_key,"humira","xeljanz"), sepby(linked_visit) noobs ab(16)
-for any 101010781: list subject_number generic_key linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" , sepby(linked_visit) noobs ab(16)
+*for any 101010781: list subject_number drug_key linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" & inlist(drug_key,"humira","xeljanz"), sepby(linked_visit) noobs ab(16)
+*for any 101010781: list subject_number generic_key linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" , sepby(linked_visit) noobs ab(16)
 // humira stop and xeljanz start on the same date is ok for 1.6 and 2.1, but making issues for 2.2.
-use "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-08-01\clean_table\1_6_drugrecord.dta", clear 
+*use "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-08-01\clean_table\1_6_drugrecord.dta", clear 
 
-for any 100236829:list source dw_event_type subject_number drug_key report_date linked_visit visit_indexn drug_date drug_date_raw drug_plan drug_status if subject_number=="X" & drug_key=="simponi_aria", sepby(linked_visit) noobs ab(16)
+*for any 100236829:list source dw_event_type subject_number drug_key report_date linked_visit visit_indexn drug_date drug_date_raw drug_plan drug_status if subject_number=="X" & drug_key=="simponi_aria", sepby(linked_visit) noobs ab(16)
 
+codebook linked_visit drug_date
 
+compress 
+save clean_table\1_6_drugrecord_$datacut, replace 
 
-save "..\clean_table\1_6_drugrecord.dta", replace 
-
-mdesc drug_name_raw drug_name_txt drug_name
+mdesc drug_name_raw drug_name_code drug_name_txt drug_name
 // drop extra data 
 
-cap erase 1_6_temp.dta
-cap erase 1_6_temp2.dta
-cap erase 1_6_tempC4.dta
-cap erase 1_6_drugrecord_linked_visit.dta 
+cap erase temp\1_6_temp.dta
+cap erase temp\1_6_temp2.dta
+cap erase temp\1_6_tempC4.dta
+cap erase temp\1_6_drugrecord_linked_visit.dta 
 
 cap log close
