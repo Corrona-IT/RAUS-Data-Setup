@@ -17,6 +17,8 @@ Ying: revised 2024-12-09
 use clean_table 1_4_alllabs instead bv_labs to consistent with final clean lab data and 
 excluded vectra_da which created for UnlearnAI, now it is in 1_4_alllabs 
 
+Ying: 2025-3-19: keep x_surgery_* variables and add jt_surgery* from final dwsub2 for version 4-11 
+
 ******************************************************************************************************************************/
 /* this section will remove after finalized and run from master.do file 
 
@@ -29,7 +31,29 @@ global tt "C:\Users\yshan\Corrona LLC\Biostat Data Files - Registry Data\RA\Data
 
 cd "~\Corrona LLC\Biostat Data Files - Registry Data\RA\monthly\Transition\analysis\allvisits" 
 
-*******************************************************************************************************************************/
+******************************************************************************************************************************
+2025-01-25 LG 
+finished blood pressure range definition based on the codebook 
+*/ 
+
+/* Ying 2025-03-20 add jt_surgery from dwsub2(2023-12-31) for version 4-11
+* this section only need one time, then save in "~\Corrona LLC\Biostat Data Files - RA\Setup\data_for_setup\ 
+ 
+use id visitdate jt_surgery* using "~\Corrona LLC\Biostat Data Files - RA\monthly\2023\2023-12-31\dwsub2.dta", clear 
+merge 1:1 id visitdate using "~\Corrona LLC\Biostat Data Files - RA\monthly\2023\2023-12-31\dwsub1.dta", keepus(subject_number date_jt_surgery version)
+drop _m 
+
+tab version jt_surgery
+tab version if date_jt_surgery<.  
+for any date_jt_surgery visitdate: format X %tdCCYY-NN-DD 
+drop if jt_surgery==.  
+drop version 
+sort subject_number visitdate 
+save "~\Corrona LLC\Biostat Data Files - RA\Setup\data_for_setup\jt_surgery.dta", replace 
+
+*/ 
+
+
 
 // this data includes all office visits and any event forms 
 use bv_raw\bv_event_instances, clear  
@@ -40,14 +64,42 @@ tab dw_event_type_acronym if visit_date==""
 gen visitdate=date(visit_date, "YMD") // visit_date is true subject en/fu visit date 
 format visitdate %tdCCYY-NN-DD  
 drop if visitdate==.
+// 2025-03-05 LG clean visitdates that are not real by using created date 
+codebook visitdate 
+count if visitdate>d($cutdate) // 108
+
+list subject_number visitdate c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16) 
+/*
+  +-----------------------------------------------------------------------+
+  | subject_number    visitdate   c_event_created_~e   c_event_last_mod~e |
+  |-----------------------------------------------------------------------|
+  |      001040564   2025-12-03   07jan2025 16:30:47   07jan2025 19:20:57 |
+  |      001100690   2025-12-11   07jan2025 19:37:33   07jan2025 20:07:22 |
+  |      001020165   2025-12-17   08jan2025 00:08:57   08jan2025 00:20:21 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      001020235   2025-12-31   13jan2025 17:27:29   13jan2025 18:39:36 |
+  |-----------------------------------------------------------------------|
+  |      011595202   2025-10-14   10jan2025 14:13:51   10jan2025 14:58:02 |
+  +-----------------------------------------------------------------------+
+*/
+
+gen created_date=dofc(c_event_created_date)
+format created_date %tdCCYY-NN-DD
+replace visitdate=created_date if visitdate>15+d($cutdate)
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16)
+
+drop created_date
+
 destring site_number full_version, replace 
 *drop if site_number>=997 
 
 drop  if strpos(dw_event_type_acronym, "TAE") | dw_event_type_acronym=="PREG" | dw_event_type_acronym=="EXIT" | visitdate==. 
+// 2025-02-05 var name change from dw_event_instance_uid
+keep site_number subject_number study_acronym source_acronym c_provider_id c_effective_event_date full_version c_dw_event_instance_key dw_event_type_acronym visitdate visit_date 
 
-keep site_number subject_number study_acronym source_acronym c_provider_id c_effective_event_date full_version dw_event_instance_uid dw_event_type_acronym visitdate visit_date 
+*unique dw_event_instance_uid 
 
-unique dw_event_instance_uid 
+unique c_dw_event_instance_key
 
 sort subject_number visitdate dw_event_type_acronym 
 by subject_number visitdate: drop if _n>1 
@@ -70,8 +122,8 @@ save temp\temp_event_instance, replace
 
 * RA drug visits
 
-
-use  subject_number c_effective_event_date c_event_created_date c_event_last_modified_date c_provider_id dw_event_type_acronym study_acronym source_acronym site_number full_version dw_event_instance_uid drug_name* using "bv_raw\bv_drugs_of_interest", clear  
+// 2025-02-05 changed variable name dw_event_instance_uid
+use  subject_number c_effective_event_date c_event_created_date c_event_last_modified_date c_provider_id dw_event_type_acronym study_acronym source_acronym site_number full_version c_dw_event_instance_key drug_name* using "bv_raw\bv_drugs_of_interest", clear  
 
 keep if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU" 
 
@@ -81,6 +133,46 @@ drop drug_name*
 gen visitdate=date(c_effective_event_date, "YMD") 
 format visitdate %tdCCYY-NN-DD  
 replace visitdate=dofc(c_event_created_date) if visitdate==. 
+
+// 2025-03-05 also clean visitdate here 
+codebook visitdate 
+count if visitdate>d($cutdate) // 18
+
+list subject_number visitdate c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16) 
+/*
+  +-----------------------------------------------------------------------+
+  | subject_number    visitdate   c_event_created_~e   c_event_last_mod~e |
+  |-----------------------------------------------------------------------|
+  |      001020235   2025-12-31   13jan2025 17:27:29   13jan2025 18:39:36 |
+  |      001100690   2025-12-11   07jan2025 19:37:33   07jan2025 20:07:22 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      001040564   2025-12-03   07jan2025 16:30:47   07jan2025 19:20:57 |
+  |-----------------------------------------------------------------------|
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      001100690   2025-12-11   07jan2025 19:37:33   07jan2025 20:07:22 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      001020165   2025-12-17   08jan2025 00:08:57   08jan2025 00:20:21 |
+  |-----------------------------------------------------------------------|
+  |      001020235   2025-12-31   13jan2025 17:27:29   13jan2025 18:39:36 |
+  |      001020235   2025-12-31   13jan2025 17:27:29   13jan2025 18:39:36 |
+  |      001040564   2025-12-03   07jan2025 16:30:47   07jan2025 19:20:57 |
+  |      001040564   2025-12-03   07jan2025 16:30:47   07jan2025 19:20:57 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |-----------------------------------------------------------------------|
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      205090631   2025-11-26   17jan2025 22:48:18   17jan2025 23:43:08 |
+  |      001040564   2025-12-03   07jan2025 16:30:47   07jan2025 19:20:57 |
+  +-----------------------------------------------------------------------+
+*/
+
+gen created_date=dofc(c_event_created_date)
+format created_date %tdCCYY-NN-DD
+replace visitdate=created_date if visitdate>15+d($cutdate)
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16)
+drop created_date
+
 
 destring site_number full_version, replace 
 drop if site_number>=997 
@@ -93,7 +185,8 @@ save temp\temp_radrug, replace
 
 ********************************
 // 2025-01-14 add $datacut for all data in clean_table folder 
-use subject_number visitdate dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid  using "clean_table\1_3_conmeds_$datacut", clear  
+// 2025-02-05 changed variable name from dw_event_instance_uid
+use subject_number visitdate dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version c_dw_event_instance_key  using "clean_table\1_3_conmeds_$datacut", clear  
 
 drop if site_number>=997 
 sort subject_number visitdate dw_event_type_acronym 
@@ -103,11 +196,12 @@ save temp\temp_conmedvt, replace
 *list  dw_event_instance_uid subject_number c_effective_event_date dw_event_type_acronym study_acronym source_acronym  full_version if full_version=="", noobs ab(20) 
 
 *********************************
-
-use subject_number visitdate c_effective_event_date c_event_created_date dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version dw_event_instance_uid using "clean_table\1_7_allcomor_$datacut", clear  
+// 2025-02-05 changed variable name from dw_event_instance_uid
+use subject_number visitdate c_effective_event_date c_event_created_date dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version c_dw_event_instance_key using "clean_table\1_7_allcomor_$datacut", clear  
 
 keep if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU" 
-bysort dw_event_instance_uid: drop if _n>1 
+// 2025-02-05 changed variable name dw_event_instance_uid
+bysort c_dw_event_instance_key: drop if _n>1 
 
 destring site_number full_version, replace 
 drop if site_number>=997 
@@ -118,13 +212,15 @@ save temp\temp_comorvt, replace
 
 
 ********************************
-use subject_number visitdate  dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version infkey dw_event_instance_uid using "clean_table\1_8_allinf_$datacut", clear  
+// 2025-02-05 changed variable name from dw_event_instance_uid
+use subject_number visitdate  dw_event_type_acronym study_acronym source_acronym site_number c_provider_id full_version infkey c_dw_event_instance_key using "clean_table\1_8_allinf_$datacut", clear  
 
 keep if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU"   
 
 drop if infkey=="" 
 drop infkey  
-bysort dw_event_instance_uid: drop if _n>1 
+// 2025-02-05 changed variable name dw_event_instance_uid
+bysort c_dw_event_instance_key: drop if _n>1 
 
 destring site_number full_version, replace 
 drop if site_number>=997 
@@ -367,12 +463,25 @@ for any deformity erosions jt_sp_narrow: tab X X2, nolabe
 *****************************************************************************
 *****************************************************************************
 
+
+
 use "bv_raw\bv_longitudinal_visit_data", clear 
 
 gen visitdate=date(c_effective_event_date, "YMD") 
 format visitdate %tdCCYY-NN-DD 
 
 replace visitdate=dofc(c_event_created_date) if visitdate==. 
+
+// 2025-03-05 clean visitdate 
+codebook visitdate 
+count if visitdate>d($cutdate) // 19
+
+list subject_number visitdate c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16) 
+gen created_date=dofc(c_event_created_date)
+format created_date %tdCCYY-NN-DD
+replace visitdate=created_date if visitdate>15+d($cutdate)
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16)
+drop created_date
 
 list subject_number site_number visitdate dw_event_type_acronym study_acronym source_acronym full_version c_event_* if c_effective_event_date=="" , noobs 
 
@@ -681,7 +790,13 @@ foreach x in tb_blood_skin_dt  tb_blood_dt  tb_skin_dt  x_surgeries_most_recent_
 	format `x' %tdCCYY-NN-DD 
 } 
 
-destring bp_diastolic bp_systolic pt_pain pt_fatigues am_stiff_severity tender_jts_28 swollen_jts_28 pt_global_assess md_global_assess am_stiff_hrs am_stiff_mins health_status_assess, replace 
+destring bp_diastolic bp_systolic pt_pain pt_fatigues am_stiff_severity tender_jts_28 swollen_jts_28 pt_global_assess md_global_assess am_stiff_hrs am_stiff_mins health_status_assess, replace
+ 
+// 2025-01-29 LG added constrains for tender/swollen_jts_28, if >28 then replace with 28
+foreach x in tender swollen {
+    replace `x'_jts_28=28 if `x'_jts_28>28 & `x'_jts_28<.
+}
+
 destring curated_weight curated_bmi wpai_absent wpai_present wpai_wrkimp wpai_actimp di_calc haq_di_calc ,  replace  // computed 
 destring wpai_* drink_days_3 drink_perday drink_times, replace 
 
@@ -706,7 +821,7 @@ doi_not_started_1_code  doi_not_started_2_code  doi_reason_1_code doi_reason_2_c
 lab var subject_number  "Subject ID"
 lab var site_number  "Site ID"
 lab var visitdate  "Date of office visit"
-lab var c_effective_event_date "date of office visit
+lab var c_effective_event_date "Date of office visit"
 lab var study_acronym "Study type"
 lab var source_acronym  "EDC data source"
 lab var dw_event_type_acronym  "Form: enrollment/follow up"
@@ -730,8 +845,8 @@ lab var smoke_start_dt  "Date of start smoke since last visit"
 lab var smoke_quit  "Quit smoking since last visit"	
 lab var smoke_quit_dt  "Date of quit smoke"	
 lab var smoke_oth  "Smoke other tobacco/nicotine products"	
-lab var smoke_oth_cigars  "Cigars  "	
-lab var smoke_oth_pipes  " Pipes"	
+lab var smoke_oth_cigars  "Cigars"	
+lab var smoke_oth_pipes  "Pipes"	
 lab var smoke_oth_chewing  "Chewing tobacco"	
 lab var smoke_oth_e_cigar  "E-cigarettes or other vaping device"	
 lab var smoke_oth_tobacco  "Other tobacco or nicotine product"	
@@ -859,8 +974,8 @@ lab var joint_deformity  "Clinical joint deformity"
 lab var md_meds_yes_no  "TM: not taking any these meds; V11/RCC: not taken any NSAIDs"
 lab var conmed_yes_no "Conmed drug use"
 
-lab var osteo_meds_yes_no  "ever received an osteoporosis drug"
-lab var osteo_meds_since_yes_no  "received an osteoporosis drug since last visit"
+lab var osteo_meds_yes_no  "Ever received an osteoporosis drug"
+lab var osteo_meds_since_yes_no  "Received an osteoporosis drug since last visit"
 
 
 lab var subcutan_nods  "Subcutaneous nodules"
@@ -912,6 +1027,28 @@ lab var di_calc "mHAQ"
 lab var haq_di_calc "HAQ-DI"
 // 2025-01-14 changed from cdai to cdai_calc
 lab var cdai_calc "CDAI" 
+
+*2025-03-19 add 
+
+lab var x_surgeries_atlantoaxial "Surgery: atlantoaxial"
+lab var x_surgeries_carpal "Surgery: carpal" 
+lab var x_surgeries_cspine "Surgery: cspine"
+lab var x_surgeries_elbow "Surgery: elbow"
+lab var x_surgeries_foot_ankle "Surgery: foot/ankle"
+lab var x_surgeries_hand_wrist "Surgery: hand/wrist" 
+lab var x_surgeries_hip "Surgery: hip"
+lab var x_surgeries_knee "Surgery: knee"
+lab var x_surgeries_mcp "Surgery: mcp" 
+lab var x_surgeries_mtp "Surgery: mtp"
+lab var x_surgeries_oth "Surgery: other" 
+lab var x_surgeries_oth_spec "Surgery: other spec"
+lab var x_surgeries_shoulder "Surgery: shoulder"
+lab var x_surgeries_most_recent_dt "Date of most recent surgery" 
+lab var x_surgeries_count "Surgery: count" 
+
+lab var x_outpt_visit_rheum "Outpatient visit for RA"
+lab var x_total_outpatient_visits "Total outpatient visits" 
+lab var x_outpatient_visits_since "Outpatient visit since last visit" 
 *
 lab var hosp_count "How many times were you Admitted to the hospital"
 destring hosp_count, replace 
@@ -945,13 +1082,15 @@ replace full_version=version if _m>=3 & full_version>=12 & year(visitdate)<2012 
 drop _m vn version
 erase vn2.dta  
 
-
+// 2025-01-28 after discussion with Ying further refined range of weight. Test before next datacut.
 * clean weight 
-
+sum curated_weight, d
+cap drop weight_lb
 clonevar weight_lb=curated_weight 
-replace weight_lb=. if weight_lb<=0
-replace weight_lb=. if weight_lb>800 
-
+replace weight_lb=. if weight_lb<60
+// 2025-02-05 only change this part.
+replace weight_lb=500 if weight_lb>500 & weight_lb<.
+cap drop ck
 sort subject_number visitdate 
 by subject_number: gen ck=1 if abs(weight_lb-weight_lb[_n-1])>80 & abs(weight_lb - weight_lb[_n+1])>80 & weight_lb<. & weight_lb[_n-1]<. & weight_lb[_n+1]<.
 by subject_number: replace ck=0 if ck[_n+1]==1 | ck[_n-1]==1 
@@ -962,20 +1101,13 @@ by subject_number: replace weight_lb=weight_lb[_n-1] if ck==1
 list subject_number visitdate curated_weight weight_lb ck if ck<. in 1/3000, noobs ab(30) sepby(subject_number) 
 
 /*
+// 2025-02-05 LG note: discussed with Ying again. maybe ask DQ team to re-consider the limit the weight change.qaq
   +---------------------------------------------------------------+
   | subject_number    visitdate   curated_weight   weight_lb   ck |
-  |---------------------------------------------------------------|
-  |      000000063   2013-10-02              146         146    0 |
-  |      000000063   2014-03-11               46         146    1 |
-  |      000000063   2014-12-08              148         148    0 |
   |---------------------------------------------------------------|
   |      000123497   2014-05-27              112         112    0 |
   |      000123497   2015-05-21              205         112    1 |
   |      000123497   2015-12-09              104         104    0 |
-  |---------------------------------------------------------------|
-  |      001010083   2007-11-20              205         205    0 |
-  |      001010083   2008-03-04               12         205    1 |
-  |      001010083   2008-06-16              202         202    0 |
   |---------------------------------------------------------------|
   |      001010088   2011-12-13              228         228    0 |
   |      001010088   2012-04-05               80         228    1 |
@@ -988,11 +1120,9 @@ list subject_number visitdate curated_weight weight_lb ck if ck<. in 1/3000, noo
   |      001010183   2015-09-15              137         137    0 |
   |      001010183   2016-03-15              247         137    1 |
   |      001010183   2016-10-25              130         130    0 |
-  |      001010183   2018-09-11              123         123    0 |
-  |      001010183   2018-10-01              285         123    1 |
-  |      001010183   2018-10-30              130         130    0 |
   +---------------------------------------------------------------+
-  */
+
+*/
  
  drop ck 
 
@@ -1043,6 +1173,33 @@ list subject_number visitdate *weight* ck if everck>0 in 1/30000, noobs ab(30) s
 by subject_number: replace weight_lb=weight_lb[_n-1] if weight_lb<70 & weight_lb[_n-1]>=70 & weight_lb[_n-1]<. 
 by subject_number: replace weight_lb=weight_lb[_n+1] if weight_lb<70 & weight_lb[_n+1]>=70 & weight_lb[_n+1]<. 
 drop ck everck 
+// 2025-02-26 found one subject with typo for weight unit. The number should be in lbs but the unit is KG. curated_weight is over 300 with decimals, but the weight in other visits is 140+.
+
+replace weight_lb=141 if subject_number=="RA-100-0049" & visitdate==d(21Feb2024)
+// 2025-02-26 Per Rick and Rich's request, LG also round the weight value to avoid decimals 
+gen double weight_round=round(weight)
+compare weight_lb weight_round
+groups weight_lb weight_round if weight_lb!=weight_round 
+/*
+  +---------------------------------------+
+  | weight~b   weight~d   Freq.   Percent |
+  |---------------------------------------|
+  |  83.7757         84       1      0.64 |
+  |  94.7988         95       1      0.64 |
+  |  97.0034         97       2      1.28 |
+  | 103.6173        104       3      1.92 |
+  | 110.2311        110       2      1.28 |
+  |---------------------------------------|
+  | 112.4358        112       2      1.28 |
+  | 114.6404        115       1      0.64 |
+  |  116.845        117       3      1.92 |
+  | 119.0496        119       1      0.64 |
+  | 121.2542        121       1      0.64 |
+  |---------------------------------------|
+*/
+
+drop weight_lb
+rename weight_round weight_lb
 
 unique subject_number visitdate 
 sort subject_number visitdate 
@@ -1057,6 +1214,17 @@ use temp\bv_longitudinal_clean , clear
 sort subject_number visitdate 
 merge 1:1 subject_number visitdate using temp\temp_event_instance 
 
+/*
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                           938
+        from master                       342  (_merge==1)
+        from using                        596  (_merge==2)
+
+    matched                           510,124  (_merge==3)
+    -----------------------------------------
+*/ 
+
 assert study_acronym!="" & source_acronym!="" 
 
 
@@ -1068,27 +1236,7 @@ drop _m
 drop if visitdate==. 
 
 
-/*
-v20250113
-    Result                           # of obs.
-    -----------------------------------------
-    not matched                           899
-        from master                       326  (_merge==1)
-        from using                        573  (_merge==2)
 
-    matched                           508,025  (_merge==3)
-    -----------------------------------------
-
-    Result                           # of obs.
-    -----------------------------------------
-    not matched                           640
-        from master                       360  (_merge==1)
-        from using                        280  (_merge==2)
-
-    matched                           491,610  (_merge==3)
-    -----------------------------------------
-br subject_number c_effective_event_date dw_event_type_acronym full_version if subject_number=="093010015" | subject_number=="093010016" | subject_number=="205030900"
-*/ 
 
 sort subject_number visitdate  
 merge 1:1 subject_number visitdate using temp\temp_rfccp 
@@ -1128,7 +1276,10 @@ foreach x in hospitalization_calc {
 	rename `x'2 `x' 
 } 
 
-drop parent_study_acronym dw_site_uid dw_subject_uid 
+// 2025-02-05 update *_uid var names 
+drop parent_study_acronym 
+*drop dw_site_uid dw_subject_uid 
+drop c_site_key c_subject_key
 drop doi_*_code 
 
 *destring outpt_dr_visits_count_calc, replace 
@@ -1138,7 +1289,7 @@ rename bp_systolic seatedbp1
 rename bp_diastolic seatedbp2 
 
 gen insurance_none=1 if insurance_yes_no==0 
-lab var insurance_none "no insurance" 
+lab var insurance_none "No insurance" 
 lab val insurance_none ny 
 
 * ENG created calculated variables 
@@ -1178,7 +1329,7 @@ assert study_acronym!="" & source_acronym!=""
 
 *use "clean_table\1_2_allvisits.dta", clear 
 
-assert study_acronym!="" & source_acronym!="" 
+*assert study_acronym!="" & source_acronym!="" 
 
 sort subject_number visitdate 
 merge 1:1 subject_number visitdate using temp\temp_conmedvt  
@@ -1198,7 +1349,7 @@ tab dw_event_type_acronym if event_instance==1
 drop if event_instance==1 
 drop event_instance 
 
-drop c_is_* x_*
+drop c_is_* 
 
 sort subject_number visitdate 
 merge 1:1 subject_number visitdate using ..\..\for_update\ara, update 
@@ -1221,7 +1372,7 @@ cap drop cdai_calc
 drop c_dw_event_instance_key  dupvisits visit_date dupvisits visit_date curr_no_dmards curated_weight 
 cap drop c_edc_event_instance_key
 drop wpai_absent wpai_present wpai_wrkimp wpai_actimp hospitalization_calc 
-cap drop surgeries_any_ra_calc surgeries_any_ra_count_calc  // ENG created, need to test future 
+*cap drop surgeries_any_ra_calc surgeries_any_ra_count_calc  // ENG created, need to test future 
 drop c_effective_event_date
 
 * drop cpai_absent w
@@ -1232,25 +1383,52 @@ rename drink_perday drink_n_perday // drink_n_perday is standardized name
 
 replace drink_n_perday=50 if  drink_n_perday>50 & drink_n_perday<. 
 
-// LG 2024-10-02 talked with Ying, this part was not decided yet
-*replace bp_systolic=220 if bp_systolic>300 & bp_systolic<. 
-*replace bp_diatolic=150 if bp_diatolic>130 & bp_diatolic<. 
+// LG 2025-01-25 set bp with the range showing on codebook 
+replace bp_systolic=300 if bp_systolic>300 & bp_systolic<. 
 
-*replace bp_systolic=. if bp_diatolic<60 
-*replace bp_diatolic=. if bp_
+replace bp_systolic=. if bp_systolic<60 
+
+replace bp_diatolic=130 if bp_diatolic>130 & bp_diatolic<. 
+
+replace bp_diatolic=. if bp_diatolic<40
  
-
 
 sort subject_number visitdate 
 
-codebook visitdate // [01oct2001,07jan2025] ==> [01jan1900,31dec2024]
-*count if visitdate>d(31dec2024) //144
+mdesc visitdate 
 
-count if visitdate>d($cutdate)
+codebook visitdate // [01oct2001,07jan2025] ==> [01jan1900,31dec2024]
+count if visitdate>d(31mar2025) // 97
+
+count if visitdate>d($cutdate) // 0
 drop if visitdate>d($cutdate)
 
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
 compress
+*save clean_table\1_2_allvisits_$datacut, replace 
+
+*use clean_table\1_2_allvisits_$datacut, clear
+* incorparated jt_surgery from version 4-11 in final dwsub2 
+ 
+merge 1:1 subject_number visitdate using "~\Corrona LLC\Biostat Data Files - RA\Setup\data_for_setup\jt_surgery.dta", keepus(jt_surgery date_jt_surgery)
+drop if _m==2 
+drop _m 
+
+replace surgeries_yes_no=1 if dw_event_type_acronym=="EN" & jt_surgery==1 
+replace surgeries_yes_no=0 if dw_event_type_acronym=="EN" & jt_surgery==0 & surgeries_yes_no==.  
+
+replace surgeries_since_yes_no=1 if dw_event_type_acronym!="EN" & jt_surgery==1 
+replace surgeries_since_yes_no=0 if dw_event_type_acronym!="EN" & jt_surgery==0 &  surgeries_since_yes_no ==. 
+
+replace x_surgeries_most_recent_dt=date_jt_surgery if x_surgeries_most_recent_dt==. & date_jt_surgery!=. 
+
+drop jt_surgery date_jt_surgery 
+
 save clean_table\1_2_allvisits_$datacut, replace 
+
+corcf * using "$pdata\clean_table\1_2_allvisits_$pdatacut", id(subject_number visitdate)
 
 * Rich 2024-05-14 email site confirm subject 015001015 two visit after death date (2014-10-01) are date enter issue, need to remove 
 
@@ -1259,3 +1437,4 @@ count if visitdate>d(1Oct2014) & subject_number=="01001015"
 
 for any event_instance radrug conmedvt comorvt infvt exit image2 rfccp: cap erase "temp\temp_X.dta" 
 
+cap log close

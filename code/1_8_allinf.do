@@ -45,28 +45,38 @@ if "`c(username)'" == "bgershenson" {
 */
 **** bring in dataset -  
 
-use "bv_raw\bv_infections", clear
+use "bv_raw\bv_infections", clear 
+
+// 2025-04-02 LG adding 997 to testsites 
+drop if site_number=="999" | site_number=="998" |site_number=="997" |  site_number=="1440" |site_number=="1019" // test sites 
 
 label data "Provider-reported infections collected on Provider forms at Enrollment, Follow-up, and TAE events"
 *bv_infections:Provider-reported infections collected on Provider forms at Enrollment, Follow-up, and TAE events
 **1 row per infection. Will include TAE's [TAE_C19, TAE_INF, TAE_ZOS] that are confirmed or have no response on confirmation status.
 *********************************************************************************
-
-
-
+// 2025-03-05 LG have to check visitdate before cleaning data 
+gen visitdate = date(c_effective_event_date, "YMD") 
+assert visitdate<. 
+format visitdate  %tdCCYY-NN-DD 
+codebook visitdate // [01oct2001,27feb2025] no problems, no need to modify c_effective_event_date for the following codes 
 
 //Variable labels from the specs_view_definition
-
-label variable dw_event_instance_uid "unique id of registry event instance"
+// 2025-02-04 changed variable names confirmed by EDW 
+label variable c_dw_event_instance_key "unique id of registry event instance"
+label variable c_site_key	"unique id of site at visit"
+label variable c_subject_key "subject unique id (joining key)"
+*label variable dw_subject_uid "subject unique id (joining key)"
+*label variable dw_site_uid	"unique id of site at visit"
+*label variable dw_event_instance_uid "unique id of registry event instance"
 label variable parent_study_acronym	"parent study: RA"
 *label variable parent_study_uid	"parent study unique id (joining key)"
 label variable study_acronym "Study"
 label variable source_acronym "EDC source" 
 *label variable study_uid "unique id (joining key) for study"
 label variable site_number	"public site_number of site at visit"
-label variable dw_site_uid	"unique id of site at visit"
+
 label variable subject_number "public facing subject_number (string)"
-label variable dw_subject_uid "subject unique id (joining key)"
+
 label variable dw_event_type_acronym "registry event type"
 label variable c_effective_event_date "If visit, date of visit or created date when visit date not entered. If TAE, date of event onset, then use date of follow-up visit at which TAE was reported, or created date when neither is entered. If exit, date of exit or created date when exit date not entered."
 label variable c_provider_id "provider ID"
@@ -111,13 +121,16 @@ label variable pathogen_5 "Pathogen 5"
 label variable pathogen_5_code "Standardized codification of pathogen_5"
 label variable additional_pathogens "Indicates if more than 5 pathogens were entered in the EDC"
 
-
-sort subject_number dw_event_instance_uid x_edc_event_ordinal dw_event_instance_uid onset_date c_effective_event_date
+// 2025-02-04 changed variable name 
+// 2025-04-02 changed bv variable name from x_edc_event_ordinal to edc_event_ordinal
+*sort subject_number dw_event_instance_uid x_edc_event_ordinal dw_event_instance_uid onset_date c_effective_event_date
+sort subject_number c_dw_event_instance_key edc_event_ordinal  onset_date c_effective_event_date
 
 //Confirming all the variables are available at a download
 *edc_event_name_raw rename to x_edc_event_name_raw edc_event_ordinal rename to x_edc_event_ordinal
 
-local varlist dw_event_instance_uid study_acronym source_acronym site_number ///
+// 2025-02-04 changed variable name 
+local varlist c_dw_event_instance_key study_acronym source_acronym site_number ///
 subject_number dw_event_type_acronym c_effective_event_date c_provider_id full_version ///
  coll_crf_name_raw coll_crf_ordinal coll_group_type_acronym ///
 coll_group_ordinal confirm_tae confirm_tae_code infection_type infection_type_code infection_type_txt onset_date location_txt targeted serious ///
@@ -160,16 +173,17 @@ replace pathogen_txt=strtrim(strlower(pathogen_txt))
 		//Confirm with Ying if this ok.
 *groups onset_date, missing
 
-	//replacing missing onset date for visitdate/c_effective_event_date. Atleast gives us some information
+	//replacing missing onset date for visitdate/c_effective_event_date. At least gives us some information
 	
-gen onset_year=strlower(substr(onset_date,1,4))
-gen onset_month=strlower(substr(onset_date,6,2))
-gen onset_day=strlower(substr(onset_date,9,2))
 
+
+ 
 ****************************************************************************************************************
 **The following variables gives us a unique case count
-sort subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym infection_type_code
-quietly by subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym infection_type_code: gen event_instance_dup = cond(_N==1,1,_n)
+// 2025-02-04 changed variable name 
+
+sort subject_number c_effective_event_date c_dw_event_instance_key dw_event_type_acronym infection_type_code
+quietly by subject_number c_effective_event_date c_dw_event_instance_key dw_event_type_acronym infection_type_code: gen event_instance_dup = cond(_N==1,1,_n)
 //This gives us an order for the unique case
 by subject_number: gen record_order=_n
 
@@ -178,7 +192,7 @@ by subject_number: gen record_order=_n
 tab event_instance_dup
 *isid subject_number
 
-list subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym infection_type_code if event_instance_dup>1 
+list subject_number c_effective_event_date c_dw_event_instance_key dw_event_type_acronym infection_type_code if event_instance_dup>1 
 *drop event_instance_dup
 
 /*
@@ -406,12 +420,12 @@ replace infection_type_code=19050 if infection_type=="skin abscess"
 }
 	
 	//Herpes Zoster	
-		foreach x in "herpes zoster"{
-replace infection_type="Herpes zoster (specify location)" if infection_type_txt=="`x'" & infection_type==""
-replace infection_type="Herpes zoster (specify location)" if infection_type_txt=="`x'" & (infection_type=="infection other serious (specify)" | infection_type=="infection other (specify)")
-replace infection_type_code=19250 if infection_type_txt=="`x'" & infection_type_code==.
-replace infection_type_code=19250 if infection_type=="Herpes zoster (specify location)"
-}
+		foreach x in "herpes zoster"{	
+replace infection_type="Herpes zoster (specify location)" if infection_type_txt== "`x'" & infection_type=="" 
+replace infection_type="Herpes zoster (specify location)" if infection_type_txt== "`x'" & (infection_type=="infection other serious (specify)" | infection_type=="infection other (specify)")
+		} 
+replace infection_type_code=19250 if infection_type=="Herpes zoster (specify location)" & infection_type_code==. 
+
 	
 	//Otitis (ear infection)
 	foreach x in "otitis" {
@@ -755,259 +769,106 @@ replace infkey="inf_oth_spec" if infection_type=="infection other serious (speci
 
 tab infkey infection_type, m
 
+drop if infection_type=="" & infection_type_txt=="" // Ying added 2025-02-20, drop 81 missing infection type and txt 
 //infection_other_serious--
 //TB(active or latent)-- update serious=1
 
 *save "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\Biostats PV\Bernice\data\1_8_allinf.dta", replace
 save "temp\rawdata\infection_data_5.dta", replace
 
-******************************************************************
-//No need to include dw_event_instance_uid-- we want to flag the same duplicate events every download
-******************************************************************
 
-*sort subject_number c_effective_event_date
-*browse subject_number c_effective_event_date dw_event_type_acronym infection_type onset_date onset_year pathogen_1 location_txt pathogen_txt
+/**************************************************
+2025-02-05 meeting: Melissa, Bernice, Nicole, Lin and Ying 
 
+Imputed onset date if missing: use visitdate-1 on EN; use visitdate on FU, use reported_date on TAEs 
+if parialy missing: YYYY-XX-XX using 01 replace XX  
 
-******************************************************************
-* 1. :  deduplicate by id, infection type, infection_type_txt, onset year, onset_month pathogen 1, location txt pathogen_txt
-*dw_event_type_acronym==TAE_INF doesn't have pathogen code populated
-******************************************************************
+Deduplication Rules and imputed onset date: 
+1.	YYYY-XX-XX/UK, using 01 replace XX  
+2.	If onset_date missing with multiple reported events, keep the first event reported 
+3.	If same YYYY-MM, unknow day (XX), use the first event reported 
+4.	If same YYYY-MM-DD, use the first event reported 
+5.	If same YYYY-MM, different DD, keep all events reported 
+6.	Imputed onset date if missing: use visitdate-1 on EN; use visitdate on FU
 
-* Flaging duplicates between En/FU
-//Dup- not a duplicate receives 0
-	//Duplicates- receive 1, 2,3 numbers for subsquent duplicate observations
-	
-*tab dw_event_type_acronym, m	
-*tab dw_event_type_acronym record_order, m
+**************************************************/ 
+use "temp\rawdata\infection_data_5.dta", clear 
 
-**************************************************
-//Removing duplicates within En/FU visits*********
-**************************************************
-*local rawdata "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\Biostats PV\Bernice\data\"
-use "temp\rawdata\infection_data_5.dta", clear
-gen visit=1 if dw_event_type_acronym=="EN" | dw_event_type_acronym=="FU" | dw_event_type_acronym=="RFU"
-replace visit=0 if strpos(dw_event_type_acronym, "TAE") // Ying revised on 2024-12-19 from dw_event_type_acronym=="TAE_INF" 
-tab dw_event_type_acronym visit, m
-preserve
-keep if visit==1
-save "temp\rawdata\1visits.dta", replace
-restore
-preserve
-keep if visit==0
-save "temp\rawdata\1tae.dta", replace
-restore
+destring site_number, gen(site_id) force 
+drop if site_id>=997 // drop test sites 
+drop site_id 
 
+drop if infkey=="" // 81 no infection type, dropped 
+gen tae=strpos(dw_event_type_acronym, "TAE") 
 
-use "temp\rawdata\1visits.dta", clear
-bysort subject_number: generate enfirstfusecond=0 if dw_event_type_acronym=="EN"
-bysort subject_number: replace enfirstfusecond=1 if dw_event_type_acronym~="EN"
+for any year month day: cap drop onset_X 
+gen onset_year=strlower(substr(onset_date,1,4))
+gen onset_month=strlower(substr(onset_date,6,2))
+gen onset_day=strlower(substr(onset_date,9,2)) 
 
-sort subject_number infection_type_code infection_type_txt onset_year onset_month pathogen_1 location_txt pathogen_txt enfirstfusecond
-by subject_number infection_type_code infection_type_txt onset_year onset_month pathogen_1 location_txt pathogen_txt : gen infevent_dup1 = cond(_N==1,0,_n)
-by subject_number: gen conscount=1 if infevent_dup1<=1
-//For each episode of duplicate cases with a subject- we get a distinct number
-by subject_number: gen Count_conscount=sum(conscount)
+for any month day: replace onset_X="01" if (onset_X=="xx" | onset_X=="uk") & onset_date!="" 
+for any month day: replace onset_X="01" if onset_X=="" & onset_year!="" 
 
-*browse if infevent_dup1>0
+egen imp_onset_date=concat(onset_year onset_month onset_day) if onset_date!="", p("-") 
 
-local updatevar serious_code iv_antiinfectives_code hepatitis_reactivation_code confirm_tae_code ///
-pathogen_1 serious iv_antiinfectives onset_date hepatitis_reactivation infection_status targeted infection_status confirm_tae
-foreach v of local updatevar {
-  sort subject_number Count_conscount infevent_dup1
-  gen miss_flag=0 if !missing(`v')
-  replace miss_flag=1 if missing(`v')
+*br imp_onset_date c_effective_event_date if  onset_date=="" & tae==1
+replace imp_onset_date=c_effective_event_date if onset_date=="" & tae==1 // use tae report date for TAEs if missing_onset_date 
 
-  gsort subject_number Count_conscount miss_flag -c_effective_event_date 
-  by subject_number Count_conscount: replace `v' = `v'[1] if infevent_dup1>0
-  drop miss_flag
-}
+tab dw_event_type_acronym if imp_onset_date=="" 
+
+* de-duplicate in same source, MD/TAE 
+
+* de-duplicate if same onset_date. keep the first event if missing onset_date 
+sort tae subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt c_effective_event_date dw_event_type_acronym 
+by tae subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt: drop if _n>1 
 
 
-*browse if infevent_dup1>0
-*tab infevent_dup1
-drop conscount Count_conscount
+* some duplicate with one pathogen_1, location_txt, or patheogen_txt no missing, 2nd missing, drop 2nd 
+ by tae subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt: drop if _n==1 & pathogen_txt=="" & pathogen_txt[_n+1]!="" & _N==2
+ by tae subject_number infkey infection_type_txt imp_onset_date: gen ck=1 if _n==1 & _N>1 & (pathogen_1==pathogen_1[_n+1] | pathogen_1=="") & location_txt==location_txt[_n+1] & pathogen_txt==pathogen_txt[_n+1] 
+ 
+ /*
+ egen everck=sum(ck), by(tae subject_number infkey infection_type_txt imp_onset_date)
+br tae subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt ck if everck>0 
+*/ 
+ drop if ck==1 
+ drop ck 
+ 
+* de-duplicate between MD/TAE: use MD form visitdate, but use TAE onset_date   
+sort subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt onset_day tae  
+by subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt: gen vN=_N  
+tab vN tae if vN>1 
 
-keep if infevent_dup1<=1
-count
-save "temp\rawdata\1visits_nodup.dta", replace
+foreach x in c_dw_event_instance_key c_provider_id full_version c_effective_event_date { 
+by subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt: replace `x'=`x'[_n-1] if _n==2 & tae==1 & tae[_n-1]==0 
+} 
 
+by subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt: drop if _N==2 & _n==1 
+drop vN 
+ 
+unique subject_number infkey infection_type_txt imp_onset_date pathogen_1 location_txt pathogen_txt 
 
-********************************************
-//Removing duplicates within the TAE data***
-*********************************************
+// if missing onset date: use visit date-1 on EN; and visitdate on FU 
 
-use "temp\rawdata\1tae.dta", clear
-
-sort subject_number infection_type_code infection_type_txt onset_year onset_month pathogen_1 location_txt pathogen_txt onset_day
-by subject_number infection_type_code infection_type_txt onset_year onset_month pathogen_1 location_txt pathogen_txt : gen infevent_dup1 = cond(_N==1,0,_n)
-tab infevent_dup1, m
-*browse if infevent_dup1>0
-by subject_number: gen conscount=1 if infevent_dup1<=1
-//For each episode of duplicate cases with a subject- we get a distinct number
-by subject_number: gen Count_conscount=sum(conscount)
-
-drop conscount Count_conscount
-keep if infevent_dup1<=1
-save "temp\rawdata\1tae_nodups.dta", replace
-
-//Append the 1taes with deduplicates visits
-use "temp\rawdata\1tae_nodups.dta", clear
-append using "temp\rawdata\1visits_nodup.dta"
-drop infevent_dup1 
-save "temp\rawdata\infection_data_6.dta", replace
-
-
-*******************************************************************
-//Checking and removing duplicates within Enrollment and TAE data**
-********************************************************************
-
-use "temp\rawdata\infection_data_6.dta", clear
-gen enrollandtae=.
-replace enrollandtae=1 if dw_event_type_acronym=="EN"
-replace enrollandtae=0 if dw_event_type_acronym=="TAE_INF" 
-
-tab dw_event_type_acronym enrollandtae, m
-
-keep if enrollandtae==1 | enrollandtae==0
-save "temp\rawdata\enrollandTAE.dta", replace
-use "temp\rawdata\enrollandTAE.dta", clear
-sort subject_number infection_type infection_type_txt onset_year onset_month
-quietly by subject_number infection_type infection_type_txt onset_year onset_month:  gen infevent_dup2 = cond(_N==1,0,_n)
-*browse if infevent_dup2>0
-**These flagged cases are not duplicates
-**Nothing is dropped
-
-
-
-*********************************************************
-//Removing duplicates within the TAE and FU visit data***
-*********************************************************
-use "temp\rawdata\infection_data_6.dta", clear
-gen fuandtae=.
-replace fuandtae=0 if dw_event_type_acronym=="FU" |  dw_event_type_acronym=="RFU"
-replace fuandtae=1 if dw_event_type_acronym=="TAE_INF"
-tab dw_event_type_acronym fuandtae, m
-*save "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\Biostats PV\Bernice\data\infection_data_5.dta", replace
-*use "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\Biostats PV\Bernice\data\infection_data_5.dta", clear
-preserve 
-keep if fuandtae==.
-save "temp\rawdata\enrollonly.dta", replace 
-restore
-
-keep if fuandtae==1 | fuandtae==0
-save "temp\rawdata\fuandTAE.dta", replace
-use "temp\rawdata\fuandTAE.dta", clear
-sort subject_number infection_type infection_type_txt onset_year onset_month fuandtae
-quietly by subject_number infection_type infection_type_txt onset_year onset_month:  gen infevent_dup3 = cond(_N==1,0,_n)
-*browse if infevent_dup3>0
-tab infevent_dup3
-
-by subject_number: gen conscount=1 if infevent_dup3<=1
-//For each episode of duplicate cases with a subject- we get a distinct number
-by subject_number: gen Count_conscount=sum(conscount)
-
-
-*browse if infevent_dup3>0
-//Edited: 07May2024
- //Removed: onset date
-local updatevar serious_code iv_antiinfectives_code hepatitis_reactivation_code confirm_tae_code ///
-pathogen_1 serious iv_antiinfectives hepatitis_reactivation infection_status targeted infection_status confirm_tae pathogen_2
-foreach v of local updatevar {
-  sort subject_number Count_conscount infevent_dup3
-  gen miss_flag=0 if !missing(`v')
-  replace miss_flag=1 if missing(`v')
-
-  gsort subject_number Count_conscount miss_flag -c_effective_event_date 
-  by subject_number Count_conscount: replace `v' = `v'[1] if infevent_dup3>0
-  drop miss_flag
-}
-//Edited: 07May2024
-bysort subject_number infection_type onset_year onset_month fuandtae: gen tae_date=onset_date if infevent_dup3>0 & dw_event_type_acronym=="TAE_INF"
-sort subject_number infection_type onset_year fuandtae
-by subject_number infection_type onset_year: replace tae_date=tae_date[_n+1] if tae_date==""
-gen tae_day=strlower(substr(tae_date,9,2))
-gsort subject_number infection_type onset_year onset_month 
-by subject_number infection_type onset_year onset_month: replace onset_date = tae_date if infevent_dup3>0 & dw_event_type_acronym~="TAE_INF"	 
-by subject_number infection_type onset_year onset_month: replace onset_day = tae_day if infevent_dup3>0 & dw_event_type_acronym~="TAE_INF"	
-
-*browse subject_number infection_type onset_year onset_date onset_month onset_day pathogen_1 dw_event_type_acronym tae_date infevent_dup3 if subject_number=="001020416"
-
-
-*browse if infevent_dup3>0
-drop conscount Count_conscount
-keep if infevent_dup3<=1
-count
-*60,250
-save "temp\rawdata\fuandTAE_nodup.dta", replace
-
-use "temp\rawdata\fuandTAE_nodup.dta", clear
-append using "temp\rawdata\enrollonly.dta"
-drop visit enfirstfusecond fuandtae infevent_dup3 
-
-count
-*90,076
-
-drop event_instance_dup record_order sum_events_across
-sort subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym infection_type_code
-save "temp\rawdata\infection_data_7.dta", replace
-
-
-
-///Update onset date
-*local rawdata "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\Biostats PV\Bernice\data\"
-use "temp\rawdata\infection_data_7.dta", clear
-
-** bring in visit_date from fv_event_instances 
-merge m:1 subject_number dw_event_instance_uid subject_number c_effective_event_date dw_event_instance_uid dw_event_type_acronym  using "bv_raw\bv_event_instances", keepusing(dw_event_instance_uid visit_date tae_date)
-keep if _merge==3
-drop _merge 
-
-save "temp\rawdata\infection_data_8.dta", replace
-use "temp\rawdata\infection_data_8.dta", clear
-
-
-gen visit_date_formatted = date(visit_date, "YMD")
-format visit_date_formatted %tdCCYY-NN-DD  
-
-
-//Convert dates from string to numeric format
-
-rename c_effective_event_date c_effective_event_date_orig
-gen c_effective_event_date=date(c_effective_event_date_orig, "YMD") 
-format c_effective_event_date %tdCCYY-NN-DD  
-
-rename reported_date reported_date_orig
-gen reported_date=date(reported_date_orig, "YMD") 
-format reported_date %tdCCYY-NN-DD 
-
-** use onset_date as imputed date if not missing
-gen imp_onset_date = onset_date if !missing(onset_date)
-
-** enrollment visit events: use visit_date - 1 day
-gen enroll_minus1 = visit_date_formatted - 1 if dw_event_type_acronym=="EN"
-format enroll_minus1 %tdCCYY-NN-DD
-
-tostring enroll_minus1, g(enroll_minus1_full) format("%tdCCYY-NN-DD")force
-replace imp_onset_date = enroll_minus1_full if missing(onset_date) & !missing(enroll_minus1_full) & dw_event_type_acronym=="EN"
-** fu and tae events with non-missing visit_date - use visit_date 
-replace imp_onset_date = visit_date if missing(onset_date) & !missing(visit_date) & dw_event_type_acronym!="EN"
-
-
-** independent tae - use c_effective_event_date
-replace imp_onset_date = c_effective_event_date_orig if missing(onset_date) & !missing(c_effective_event_date) & missing(visit_date) & dw_event_type_acronym=="TAE_INF"
-
+gen misdt=date(c_effective_event_date, "YMD")-1 if missing(imp_onset_date) & dw_event_type_acronym=="EN"  
+replace misdt=date(c_effective_event_date, "YMD") if missing(imp_onset_date) & dw_event_type_acronym!="EN" & tae==0   
+tostring misdt, gen(misdt_str)  format("%tdCCYY-NN-DD")force  
+replace imp_onset_date=misdt_str if imp_onset_date=="" & misdt_str!="" 
+drop misdt misdt_str 
+assert imp_onset_date!="" 
 
 ** set flag for imputed onset_date 
 gen imp_onset_date_flag = 1 if onset_date != imp_onset_date 
+lab var imp_onset_date_flag "Imputed onset date-yes" 
 
-** create date-parts of imputed onset date (month, day, year)
-gen imp_onset_year = strlower(substr(imp_onset_date,1,4))
-gen imp_onset_month = strlower(substr(imp_onset_date,6,2))
-gen imp_onset_day = strlower(substr(imp_onset_date,9,2))
+* format to date 
+gen onsetdate=date(imp_onset_date, "YMD") 
+format onsetdate %tdCCYY-NN-DD 
+assert onsetdate<. 
 
-
-*drop visit_date
+drop imp_onset_date 
+rename onsetdate imp_onset_date 
+lab var imp_onset_date "Imputed onset date" 
 
 recast str75 infection_type
 recast str200 infection_type_txt
@@ -1018,193 +879,43 @@ format %200s infection_type_txt
 format %100s pathogen_1
 format %100s pathogen_txt 
 
-drop if site_number=="999" | site_number=="998" | site_number=="1440" |site_number=="1019" // test sites 
-
-cap drop visitdate 
-clonevar visitdate=c_effective_event_date 
-replace visitdate=visit_date_formatted if c_effective_event_date!=visit_date_formatted & visit_date_formatted<. 
-
-replace visitdate=dofc(c_event_created_date) if visitdate==.
+/* 2025-03-04 LG put this part at the top of the code for possible cleaning steps 
+gen visitdate = date(c_effective_event_date, "YMD") 
 assert visitdate<. 
-
-des visit_date*
-lab var visitdate "Date of office/event"  
-
-*Ying added on 20240813 to clean duplicates 
-sort subject_number visitdate infkey onset_date infection_type_txt confirm_tae_code serious_code targeted 
-by subject_number visitdate infkey onset_date infection_type_txt: gen vN=_N 
-
-list subject_number visitdate infkey onset_date infection_type_txt confirm_tae serious targeted if vN>1, noobs ab(20) 
-
-by subject_number visitdate infkey onset_date infection_type_txt: drop if _n>1 
-drop vN 
-
-unique subject_number visitdate infkey onset_date infection_type_txt
+format visitdate  %tdCCYY-NN-DD 
+*/
+drop tae 
 
 // 2025-01-09 added
 codebook visitdate // [01oct2001,30jan2025] ==> [01jan1900,31dec2024]
-count if visitdate>d(31dec2024) //15
-
+count if visitdate>d(31mar2025) //15
+*
 count if visitdate>d($cutdate)
 drop if visitdate>d($cutdate)
 
-
+assert imp_onset_date<.   
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
 ** save dataset 
-compress
+compress 
 
 save "clean_table\1_8_allinf_$datacut.dta", replace
 
 *****************************
+cap log close 
+log using temp\test_allinf.log, replace
 
+use "$pdata\clean_table\1_8_allinf_$pdatacut", clear 
+unique subject_number visitdate infkey onset_date
+bysort subject_number visitdate infkey onset_date: drop if _N>1
+save temp\1_8_allinf_test, replace 
 
+use clean_table\1_8_allinf_$datacut, clear 
 
+unique subject_number visitdate infkey onset_date
+bysort subject_number visitdate infkey onset_date: drop if _N>1
 
+corcf * using temp\1_8_allinf_test, id(subject_number visitdate infkey onset_date dw_event_type_acronym) 
 
-/*
-
-use clean_table\1_8_allinf.dta, clear
-
-
-*save "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\data\clean_table\1_8_allinf.dta", replace
-*use "~\Corrona LLC\Biostat Data Files - RA\Data Warehouse Project 2020 - 2021\Analytic File\data\clean_table\1_8_allinf.dta", clear
-
-
-/*********************************************
-*create data dictionary for all_inf data set
-*********************************************/
-
-*global dpath "~/Corrona LLC/Biostat Data Files - Biostat PV/AD/Eventfilecreation/PVSourced"
-*use "$dpath/Data/clean//`curr_year'//`mon'/1_8_allinf.dta",clear
-
-*cordd * using "$dpath/Data/clean//`curr_year'//`mon'/1_8_allinf `cutday'`cutmon'`cutyear'cut.xlsx") sheet("All infection vars", replace)
-
-
-
-*eof
-
-tab infkey infection_type, m
-*90,994 
-tab infkey, m
-/*
-        infkey |      Freq.     Percent        Cum.
-----------------------------------------+-----------------------------------
-                                        |         78        0.09        0.09
-                              arthritis |        172        0.19        0.27
-                                 bronch |      9,052        9.95       10.22
-                               bursitis |        243        0.27       10.49
-                             cellulitis |      5,573        6.12       16.61
-                          covid_confirm |      2,424        2.66       19.28
-                        covid_suspected |      1,294        1.42       20.70
-                                    div |      1,397        1.54       22.24
-                                 gastro |      1,408        1.55       23.78
-                                    hbv |          6        0.01       23.79
-                                    hcv |         10        0.01       23.80
-                                hep_oth |          3        0.00       23.80
-                               hiv_aids |         11        0.01       23.82
-                                     hz |      1,663        1.83       25.64
-                                 hz_oth |        199        0.22       25.86
-                           inf_oth_spec |     14,556       16.00       41.86
-                            joint_bursa |      1,527        1.68       43.54
-                                 mening |        170        0.19       43.72
-                          osteomyelitis |        133        0.15       43.87
-                                 otitis |         70        0.08       43.95
-                                    pml |          5        0.01       43.95
-                                    pne |     10,513       11.55       55.51
-                            pne_non_pyo |      1,318        1.45       56.95
-                                pne_pyo |      1,159        1.27       58.23
-                                 sepsis |      1,562        1.72       59.94
-                              sinusitis |     13,901       15.28       75.22
-                           skin_abscess |         21        0.02       75.24
-                              tb_active |         45        0.05       75.29
-                              tb_latent |        237        0.26       75.55
-                                tb_spec |         49        0.05       75.61
-                                    uri |     12,008       13.20       88.80
-                                    uti |     10,187       11.20      100.00
-----------------------------------------+-----------------------------------
-                                  Total |     90,994      100.00
-
-
-*90,147
-tab infkey, m
-/*
-                                 infkey |      Freq.     Percent        Cum.
-----------------------------------------+-----------------------------------
-                                        |         78        0.09        0.09
-                              arthritis |        172        0.19        0.28
-                                 bronch |      8,981        9.96       10.24
-                               bursitis |        243        0.27       10.51
-                             cellulitis |      5,533        6.14       16.65
-                          covid_confirm |      2,234        2.48       19.13
-                        covid_suspected |      1,278        1.42       20.54
-                                    div |      1,351        1.50       22.04
-                                 gastro |      1,379        1.53       23.57
-                                    hbv |          5        0.01       23.58
-                                    hcv |          5        0.01       23.58
-                                hep_oth |          3        0.00       23.59
-                               hiv_aids |          3        0.00       23.59
-                                 hz_oth |         12        0.01       23.60
-                           inf_oth_spec |     17,585       19.51       43.11
-                            joint_bursa |      1,520        1.69       44.80
-                                 mening |        147        0.16       44.96
-                          osteomyelitis |         14        0.02       44.97
-                                 otitis |          9        0.01       44.98
-                                    pml |          5        0.01       44.99
-                                    pne |     10,429       11.57       56.56
-                            pne_non_pyo |      1,318        1.46       58.02
-                                pne_pyo |      1,159        1.29       59.31
-                                 sepsis |      1,514        1.68       60.99
-                              sinusitis |     13,785       15.29       76.28
-                           skin_abscess |          6        0.01       76.28
-                              tb_active |         40        0.04       76.33
-                              tb_latent |        233        0.26       76.59
-                                tb_spec |         49        0.05       76.64
-                                    uri |     11,278       12.51       89.15
-                                    uti |      9,779       10.85      100.00
-----------------------------------------+-----------------------------------
-                                  Total |     90,147      100.00
-*/
-
-*90,085
-/*
-tab infkey, m
-
-                                 infkey |      Freq.     Percent        Cum.
-----------------------------------------+-----------------------------------
-                                        |         78        0.09        0.09
-                              arthritis |        172        0.19        0.28
-                                 bronch |      8,982        9.97       10.25
-                               bursitis |        243        0.27       10.52
-                             cellulitis |      5,534        6.14       16.66
-                          covid_confirm |      2,243        2.49       19.15
-                        covid_suspected |      1,279        1.42       20.57
-                                    div |      1,351        1.50       22.07
-                                 gastro |      1,382        1.53       23.60
-                                    hbv |          5        0.01       23.61
-                                    hcv |          5        0.01       23.62
-                                hep_oth |          3        0.00       23.62
-                               hiv_aids |          3        0.00       23.62
-                                     hz |      1,760        1.95       25.58
-                                 hz_oth |         14        0.02       25.59
-                           inf_oth_spec |     15,714       17.44       43.03
-                            joint_bursa |      1,520        1.69       44.72
-                                 mening |        147        0.16       44.89
-                          osteomyelitis |         14        0.02       44.90
-                                 otitis |         10        0.01       44.91
-                                    pml |          5        0.01       44.92
-                                    pne |     10,434       11.58       56.50
-                            pne_non_pyo |      1,318        1.46       57.96
-                                pne_pyo |      1,159        1.29       59.25
-                                 sepsis |      1,519        1.69       60.94
-                              sinusitis |     13,790       15.31       76.24
-                           skin_abscess |          6        0.01       76.25
-                              tb_active |         40        0.04       76.29
-                              tb_latent |        233        0.26       76.55
-                                tb_spec |         49        0.05       76.61
-                                    uri |     11,285       12.53       89.13
-                                    uti |      9,788       10.87      100.00
-----------------------------------------+-----------------------------------
-                                  Total |     90,085      100.00
-
-*/
-browse if infkey==""
-*there is nothing in the infection_type_txt or any addtional information
+cap log close 

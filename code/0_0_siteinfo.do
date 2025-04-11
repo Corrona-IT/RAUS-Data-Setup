@@ -40,7 +40,7 @@ import delimited using "site_data_clean",bindquote(strict) asdouble
 log using temp\site_data.log,  replace    
 import delimited using "~\Corrona LLC\Biostat Data Files - Site and Provider Data\data\site_data_clean", bindquote(strict) asdouble clear 
 
-tab registry // 244 RA ==>247 RA ==>248==>249==>250
+tab registry // 244 RA ==>247 RA ==>248==>249==>250==>251==>254
 
 keep if registry=="RA"
 destring site_id, force replace 
@@ -77,17 +77,38 @@ count if site_id==95 // added
 
 corcf * using "$pdata\\clean_table\RAsitestatus_$pdatacut", id(site_id) verbose noobs v(50)
 /*
-  +---------------------------------------------------+
-  | site_id          master_data           using_data |
-  |---------------------------------------------------|
-  |     219   Closed / Completed     Pending closeout |
-  |     240     Pending closeout    Approved / Active |
-  |     242     Pending closeout   Closed / Completed |
-  +---------------------------------------------------+
+account_name: 1 mismatches
+
+  +-------------------------------------------------------------------------------+
+  | site_id   master_data                        using_data                       |
+  |-------------------------------------------------------------------------------|
+  |     227   Eastside Rheumatology & Intern..   Eastside Rheumatology & Intern.. |
+  +-------------------------------------------------------------------------------+
+
+
+
+status: 1 mismatches
+
+  +-------------------------------------------------+
+  | site_id          master_data         using_data |
+  |-------------------------------------------------|
+  |     253   Closed / Completed   Pending closeout |
+  +-------------------------------------------------+
+
 */
-*
+
 merge 1:1 site_id using "$pdata\\clean_table\RAsitestatus_$pdatacut"
-list if _m==1, noobs ab(16) // 2025-01-01 added site 263 Arthritis and Rheumatology of Southwest Ohio, LLC
+list site_id account_name status city if _m==1, noobs ab(12) 
+
+/*
+  +-------------------------------------------------------------------------------------------+
+  | site_id                                       account_name              status       city |
+  |-------------------------------------------------------------------------------------------|
+  |     266                Arnold Arthritis & Rheumatology, SC   Approved / Active         NA |==> in Skokie, IL according to google. check later data and add if needed.
+  |     268   Overlake Arthritis and Osteoporosis Center, PLLC   Approved / Active   Bellevue |
+  |     269                         Texoma Arthritis Clinic PA   Approved / Active   McKinney |
+  +-------------------------------------------------------------------------------------------+
+*/
 
 cap log close 
 

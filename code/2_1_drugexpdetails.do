@@ -1,4 +1,15 @@
 /*
+2025-03-20 testing 
+try to use midpoint between two visits instead of midpoint between drug date and the next/prior visit to see if the overlapps between b/csDMARDs will reduce 
+
+2025-03-18 testing 
+1. using all midpoint for imputation of drug stop dates instead of using next visitdate; 
+2. try to overwrite rituxan with drug plan start/stop within one year, change to continue instead of start/stop and count how many re-starts will be affected;
+3. try to use Ying's algorithm after this code to avoid overlapped drug exposures. 
+
+2025-01-27 based on the DQ report for 2025-01-01 datacut 
+1. drop a few not needed variables 
+2. add variable labels to unlabeled variables
 2025-01-02
 1. compress all data before saving 
 2. small fix for drug status with >3 skipped visits 
@@ -277,6 +288,19 @@ rename optional_id subject_number
 save preTM_pt_drugs_en_long, replace
 */
 
+*use temp\drug_testing_2025-02-17\1_6_drugrecord_$datacut, clear
+
+// 2025-03-31 prepare the data before saving unique dates data.
+use bv_raw\bv_drugs_of_interest, clear
+forvalues i=1/3{ 
+drop if reason_`i'==""	
+preserve 
+keep reason_`i'*
+duplicates drop *, force 
+save temp\reason_`i'_codes, replace 
+restore 
+}
+
 use  clean_table\1_6_drugrecord_$datacut, clear
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -324,22 +348,13 @@ cap drop dup11 difdrug dup10 *_mode
 duplicates drop subject_number generic_key drug_date, force 
 // v20240701z: n=51,994;  v20240331: n=49,144; v20240305 48,855; (45,453 observations deleted)
 
+*save temp\drug_testing_2025-02-17\2_1_drugexpdetails_unique_date, replace
 
-compress 
-save temp\2_1_drugexpdetails_unique_date, replace 
 
 *corcf * using temp\2_1_drugexpdetails_unique_date_old, id(subject_number generic_key drug_date)
 
 
-use bv_raw\bv_drugs_of_interest, clear
-forvalues i=1/3{ 
-drop if reason_`i'==""	
-preserve 
-keep reason_`i'*
-duplicates drop *, force 
-save temp\reason_`i'_codes, replace 
-restore 
-}
+
 // 2024-08-12 checking result after changing imputation of drug_date 
 * for any 101010781: list subject_number drug_key linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" & inlist(drug_key,"humira","xeljanz"), sepby(linked_visit) noobs ab(16)
 * for any 101010781: list subject_number generic_key linked_visit visit_indexn drug_date drug_date_raw drug_status if subject_number=="X" & inlist(generic_key,"adalimumab","tofacitinib"), sepby(linked_visit) noobs ab(16)
@@ -361,7 +376,7 @@ restore
 // 2024-10-03 testing bug fix 
 *cd "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-10-01\temp\LG_test_2024-10-03"
 
-use temp\2_1_drugexpdetails_unique_date, clear 
+*use temp\2_1_drugexpdetails_unique_date, clear 
 drop reason_1_*
 merge m:1 reason_1 using temp\reason_1_codes
 drop if _m==2
@@ -381,6 +396,54 @@ groups reason_`i' reason_`i'_code reason_`i'_category reason_`i'_category_code i
 groups reason_`i' reason_`i'_code reason_`i'_category reason_`i'_category_code if reason_`i'_category_code==9, missing ab(24) sepby(reason_`i'_category) 
 }
 
+compress 
+save temp\2_1_drugexpdetails_unique_date, replace 
+
+/*2025-03-31 de-duplicate multiple starts that linked to the same visitdate and without any switching by keeping the drug date that is closer to the MDEN/FU visitdate. probably do the same for stops. but haven't counted stops yet. only one example for stop is 001020262 humira 2 stops reported from 2 TAE forms with contradictory information.
+preserve 
+drop if inlist(drug_category, 250,390)
+save temp\test\2_1_unique_date_cdmards, replace 
+restore  
+
+keep if inlist(drug_category, 250,390)
+
+// 2025-03-31 create variables at unique date step helping to measure the time between two drug records   
+sort subject_number drug_key drug_date 
+
+by subject_number drug_key: gen prev_drug_date=drug_date[_n-1] //if drug_key=="rituxan"
+
+format prev_drug_date %tdCCYY-NN-DD
+ 
+by subject_number drug_key: gen prev_visit_indexn=visit_indexn[_n-1] //&  drug_key=="rituxan"
+
+by subject_number drug_key: gen prev_drug_plan=drug_plan[_n-1] //if drug_key=="rituxan"
+
+lab val prev_drug_plan drug_plan 
+ 
+
+// 2025-03-27 generate prior/next drug status_raw to fix duplicate starts for remicade 000000015
+by subject_number drug_key: gen prev_drug_status_raw=drug_status_raw[_n-1] 
+
+by subject_number drug_key: gen prev_drug_status=drug_status[_n-1] 
+
+lab val prev_drug_status drug_status 
+
+sort subject_number linked_visit drug_date drug_key 
+cap drop prev_drug_key
+by subject_number: gen prev_drug_key=drug_key[_n-1] 
+
+// 2025-03-27, number of repeated starts for the same drug without switching, linked to the same visit.
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key // 6,602
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key & drug_key!="rituxan" // 6,602==> 6,201 without rituxan 
+
+// 2025-03-31 for drug status, if two starts are within 4 months and the drug plan did not indicate "not continue", coded the start following a prev start as "continue". so 1.5k left from 6.6 k with either time distance of more than 121 days and drug_plan indicated start at the current drug date. Try to de-duplicate the 1.5 k first and then keep the code in drug status. 
+preserve 
+keep if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key & drug_key!="rituxan"
+list subject_number drug_key in 1/10, noobs ab(16)
+restore 
+
+for any 000000005 000000015 000000056 000000063 000123456 000592003: list subject_number dw_event_type drug_key linked_visit visit_indexn drug_date drug_plan drug_status_raw drug_status reason_1 if subject_number=="X" , noobs ab(12) sepby(drug_key)
+*/ 
 ///////////////////////////////////////////////////////////////////////////////////////////
 //////		A1. create indicator for both generic key and drugkey  (added 2024-01-16)
 ///////////////////////////////////////////////////////////////////////////////////////////
@@ -396,6 +459,7 @@ by subject_number `x'_key: gen `x'_indexN=_N
 	lab var `x'_indexn "`x' indexn"
 	lab var `x'_indexN "`x' indexN"
 }
+
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // start generic, use generic_status; use drug_status for drug_key  
@@ -537,38 +601,24 @@ replace drug_status=generic_status if drug_status!=generic_status & drug_key=="`
 }
 
 
-groups drug_status generic_status,missing ab(20)  
+groups drug_status generic_status, sepby(drug_status) missing ab(20)  
 /*
-v20250113
   +-------------------------------------------------+
   | drug_status   generic_status    Freq.   Percent |
   |-------------------------------------------------|
-  |       start            start   194984     17.29 |
-  |       start         continue     1386      0.12 |
-  |       start             stop       73      0.01 |
-  |    continue            start      100      0.01 |
-  |    continue         continue   801881     71.10 |
+  |       start            start   196399     17.33 |
+  |       start         continue     1332      0.12 |
+  |       start             stop       81      0.01 |
   |-------------------------------------------------|
-  |    continue             stop      123      0.01 |
-  |        stop            start       61      0.01 |
-  |        stop         continue     1985      0.18 |
-  |        stop             stop   127244     11.28 |
+  |    continue            start       95      0.01 |
+  |    continue         continue   807593     71.25 |
+  |    continue             stop      134      0.01 |
+  |-------------------------------------------------|
+  |        stop            start       67      0.01 |
+  |        stop         continue     2038      0.18 |
+  |        stop             stop   125785     11.10 |
   +-------------------------------------------------+
 
-  +-------------------------------------------------+
-  | drug_status   generic_status    Freq.   Percent |
-  |-------------------------------------------------|
-  |       start            start   215737     19.20 |
-  |       start         continue     1389      0.12 |
-  |       start             stop      112      0.01 | tested 001020016 002031812 tofa , ok 
-  |    continue            start      151      0.01 | no need to modify based on 001020113 tofa 
-  |    continue         continue   750995     66.83 |
-  |-------------------------------------------------|
-  |    continue             stop      226      0.02 |no need to change based on 001010019 tofa  
-  |        stop            start      112      0.01 |no need to change based on 001040002 tofa 
-  |        stop         continue     1891      0.17 |
-  |        stop             stop   153168     13.63 |
-  +-------------------------------------------------+
 */
 *save temp\2_1_drugexpdetails_status_test_2024_10-30, replace
 *br subject_number report_date drug_date linked_visit visit_indexn drug_key generic_key drug_plan drug_status drug_status_raw drug_indexn generic_status generic_indexn if drug_status==3 & generic_status==1
@@ -578,15 +628,351 @@ v20250113
 *count if drug_status==2 & drug_status_raw=="continue" & generic_status==1 // 139, change for consistency
 
 //2024-12-31 testing results for added row # 529
-for any  120010013 015010763 030120163 100273676 101010216 101011398 145010013 147010095 359476932 611891639: list dw_event_type subject_number report_date drug_date linked_visit visit_indexn drug_key drug_plan drug_status drug_status_raw drug_indexn if subject_number=="X"  & inlist(drug_category, 250,390), noobs ab(12) sepby(generic_key) 
+*for any  120010013 015010763 030120163 100273676 101010216 101011398 145010013 147010095 359476932 611891639: list dw_event_type subject_number report_date drug_date linked_visit visit_indexn drug_key drug_plan drug_status drug_status_raw drug_indexn if subject_number=="X"  & inlist(drug_category, 250,390), noobs ab(12) sepby(generic_key) 
+*save temp\drug_testing_2025-02-17\2_1_drugexpdetails_status, replace
 
+rename linked_visit visitdate
 compress
-save temp\2_1_drugexpdetails_status, replace
-// 2025-01-14 note from discussion with Page and Skyler. Found humira does not have a stop flag on visit 9. There should be a stop and a stop date should be imputed, because cimzia started on visit #10. 
+save temp\2_1_drug_status, replace
+
+// 2025-03-18 check if there are multiple start/stops within one year for rituxan, because of drug_plan reported. 
+*keep if drug_key=="rituxan"
+*br subject_number linked_visit drug_date drug_indexn drug_indexN drug_status
+// example from start to start within a few months 
+//000000005 001010052 001020099 001120562 002030071 002051146 003002423 006030044
+*for any 006030047: list subject_number linked_visit drug_date drug_indexn drug_indexN drug_plan drug_status if subject_number=="X", noobs ab(16) sepby(drug_key)
+// 2025-03-19 count number of rituxan start/stops that needs to be fixed 
+
+use temp\2_1_drug_status,  clear
+
+
+// rough count of re-starts 
+unique subject_number if drug_key=="rituxan" & drug_status==1 & drug_indexn>1 // 479; 588 in ROM monthly enrollment report 
+
+preserve 
+drop if inlist(drug_category, 250,390)
+save temp\2_1_drug_status_cDMARDS, replace 
+restore 
+
+
+////////////////////////////////////////////////////////////////////////////
+// 2025-03-21 need to do it separately for b/tsDMARDs and then append with cDMARDs 
+
+keep if inlist(drug_category, 250,390)
+
+// 2025-03-19 retain the old coding for rituxan 
+foreach x in drug generic{
+    clonevar `x'_status_Mar2025=`x'_status
+}
+
+
+*for any 006030047 : list subject_number drug_key generic_key visitdate visit_indexn visit_indexN last_visit drug_date drug_indexn drug_indexN drug_plan drug_status generic_status  if subject_number=="X" & drug_key=="rituxan", noobs ab(16) sepby(drug_key)
+*for any 002030071 : list subject_number visitdate drug_key drug_date drug_indexn drug_indexN drug_plan drug_status generic_status if subject_number=="X" & drug_key=="rituxan", noobs ab(16) sepby(drug_key) 
+/*
+2025-03-19 LG Notes for counts and possible fix 
+Summary: 
+1.	Count/Change from start to continue if drug_indexn>1 & drug_status=1 & drug_date-drug_date[_n-1]<365 & visit_indexn-visit_indexn[_n-1]<=1 ==>103
+2.	Count/Change from stop to continue if drug_indexn>1 & drug_status==3 & drug_date-drug_date[_n-1]<365 & drug_indexn<drug_indexN & visit_indexn-visit_indexn[_n-1]==1
+3.	Count/Change from stop to start if drug_plan=stop(2/9) & drug_indexn==1 & drug_date[_n+1]-drug_date<365 & inlist(drug_plan[_n+1], 3,5,6)
+
+2025-03-21 LG updates for counts and possible fix after discussion with Ying:
+1. check if all TAE reported Rituxan are stops; 
+	if rituxan was reported as "stop" in TAE form and drug_indexn=1, change it to start
+	if reported stop in TAE and drug_indexn>1 and drug_indexn<drug_indexN within 1 year from drug_indexn[_n-1], change from stop to continue
+	
+2. if switched from Rituxan to another drug, keep as stop and re-start regardless of the distance between two rituxan drug records. 
+*/
+/*
+groups dw_event_type_acronym drug_status_raw if drug_key=="rituxan", missing ab(16) sepby(dw_event_type)
+// TAE also has start and continue, not only stop 
+tab drug_status_raw if strpos(dw_event_type,"TAE") & drug_key=="rituxan",m
+
+drug_status |
+       _raw |      Freq.     Percent        Cum.
+------------+-----------------------------------
+   continue |        739       37.78       37.78
+      start |        723       36.96       74.74
+       stop |        494       25.26      100.00
+------------+-----------------------------------
+      Total |      1,956      100.00
+
+groups full_version dw_event_type_acronym drug_plan if drug_key=="rituxan" & drug_status_raw=="unknown", missing ab(16) sepby(dw_event_type)
+// all pre-RCC with missing drug plan. not an RCC or drug plan issue.
+groups full_version dw_event_type_acronym drug_plan if drug_key=="rituxan" & drug_status_raw=="stop", missing ab(16) sepby(dw_event_type)
+
+// check a few examples with TAE drug status raw =stop 
+preserve 
+keep if strpos(dw_event_type,"TAE") & drug_key=="rituxan" & drug_status_raw=="stop"
+list subject_number in 1/5, noobs clean
+restore 
+gsort subject_number visitdate -drug_key drug_date 
+for any 000000005 001020015 001060026 002020072 002021142 : list subject_number dw_event_type drug_key visitdate visit_indexn drug_date drug_indexn drug_indexN drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+
+// count overall how many will be affected to have stop at TAE 
+count if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE")  // 203 
+count if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE") & drug_indexn!=1 & drug_indexn<drug_indexN
+// 65 in the middle of the exposure, could be changed from stop to continue, depending on the distance between current drug date and the prior drug date.
+
+count if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE") & drug_indexn!=1 & drug_indexn==drug_indexN 
+// 136 may remain unchanged
+count if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE") & drug_indexn==1 & drug_indexN>1 
+// 2 to be changed from stop to start? not worth changing. 
+tab subject_number if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE") & drug_indexn==1 & drug_indexN>1  
+
+for any 036010729 061010848:list subject_number dw_event_type drug_key visitdate visit_indexn drug_date drug_indexn drug_indexN drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+
+// also check "unknown" using the same 3 scenarios 
+count if drug_key=="rituxan" & drug_status_raw=="unknown" & drug_status==3  // 554 
+count if drug_key=="rituxan" & drug_status_raw=="unknown" & drug_status==3 & drug_indexn!=1 & drug_indexn<drug_indexN
+// 37 in the middle of the exposure, could be changed from stop to continue, depending on the distance between current drug date and the prior drug date.
+count if drug_key=="rituxan" & drug_status_raw=="unknown" & drug_status==3 & drug_indexn!=1 & drug_indexn==drug_indexN 
+// 517 may remain unchanged
+count if drug_key=="rituxan" & drug_status_raw=="unknown" & drug_status==3 & drug_indexn==1 & drug_indexN>1 
+// 0
+*/
+
+// 2025-03-31 simplify extra variables, only check prev_* 
+// create variables helping to measure the time between two drug records   
+sort subject_number drug_key drug_date 
+
+by subject_number drug_key: gen prev_drug_date=drug_date[_n-1] //if drug_key=="rituxan"
+
+by subject_number  drug_key: gen next_drug_date=drug_date[_n+1] //if drug_key=="rituxan"
+
+format prev_drug_date next_drug_date  %tdCCYY-NN-DD
+ 
+by subject_number drug_key: gen prev_visit_indexn=visit_indexn[_n-1] //&  drug_key=="rituxan"
+
+by subject_number drug_key: gen prev_drug_plan=drug_plan[_n-1] //if drug_key=="rituxan"
+
+by subject_number drug_key: gen next_drug_plan=drug_plan[_n+1] //if drug_key=="rituxan"
+
+lab val prev_drug_plan next_drug_plan drug_plan 
+ 
+
+// 2025-03-27 generate prior/next drug status_raw to fix duplicate starts for remicade 000000015
+by subject_number drug_key: gen prev_drug_status_raw=drug_status_raw[_n-1] 
+*by subject_number drug_key: gen next_drug_status_raw=drug_status_raw[_n+1]
+
+by subject_number drug_key: gen prev_drug_status=drug_status[_n-1] 
+*by subject_number drug_key: gen next_drug_status=drug_status[_n+1]
+*next_drug_status 
+lab val prev_drug_status drug_status 
+
+sort subject_number visitdate drug_date drug_key 
+*for any 000000005 000000015 000000056 000000063 000123456 000592003: list subject_number dw_event_type drug_key visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status reason_1 if subject_number=="X" , noobs ab(12) sepby(drug_key)
+
+cap drop prev_drug_key
+by subject_number: gen prev_drug_key=drug_key[_n-1] 
+by subject_number: gen next_drug_key=drug_key[_n+1] 
+
+/*
+// 2025-03-26 count if there are two starts reported for same drug, without switches, at EN, such as 000000015 remicade, keep one if only one drug is reported. 
+for any 000000015: list subject_number dw_event_type drug_key prev_drug_key next_drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw prev_drug_status_raw next_drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(12) sepby(drug_key)
+
+// 2025-03-27, number of repeated starts for the same drug without switching, linked to the same visit.
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key
+// 1,546
+unique subject_number if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key // 1,427 subjects 
+
+unique subject_number drug_key if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key
+
+tab dw_event_type if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key
+
+tab visit_indexn if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & visit_indexn==1 & drug_key==prev_drug_key 
+// 1,264 are on EN visit? list some examples. 
+unique subject_number if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key // 1,427 repeated starts at EN 
+
+tab source if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key
+
+
+     source |
+(preTM, TM, |
+    or RCC) |      Freq.     Percent        Cum.
+------------+-----------------------------------
+      PRETM |        758       49.03       49.03
+        RCC |        210       13.58       62.61
+         TM |        578       37.39      100.00
+------------+-----------------------------------
+      Total |      1,546      100.00
+
+
+// 2025-03-31 needs to figure out how to identify a series of starts without switching. ==> need to go back to the deduplication step instead of drug_status 
+preserve 
+keep if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key
+list subject_number drug_key in 1/5, noobs ab(16)
+restore 
+
+// preTM examples 
+for any 000123456 000592003 000892050: list source subject_number dw_event_type drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status drug_indexn if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(12) sepby(drug_key)
+
+// TM examples 
+preserve 
+keep if source=="TM" & drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key
+list subject_number drug_key in 1/5, noobs ab(16)
+restore 
+//   
+for any 001010085 001017032: list source subject_number dw_event_type drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+// example of 2 starts very close to each other 
+for any 001020262: list source subject_number dw_event_type drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+// example of 2 starts very far from each other 
+preserve 
+keep if drug_date-prev_drug_date>1000 & drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key
+list subject_number drug_key in 1/5, noobs ab(16)
+restore 
+
+for any 000123456 : list source subject_number dw_event_type drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+
+// RCC examples 
+preserve 
+keep if source=="RCC" & drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key
+list subject_number drug_key in 1/10, noobs ab(16)
+restore 
+
+for any 001010164 001010224 001010238 001100555 002061799: list source subject_number dw_event_type drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+
+for any 002062345 003015085 003025138: list source subject_number dw_event_type drug_key report_date visitdate visit_indexn drug_date drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+*/
+// discuss by drug_date-prev_drug_date 
+cap drop dif_date 
+gen dif_date=drug_date-prev_drug_date if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key
+sum dif_date ,d
+
+// median is 304, one year 
+/*
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key & dif_date <=30 
+// within 1 month: 201 
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key & dif_date >30  & dif_date<=90 
+// 1-3 months: 132 
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key & dif_date >90  & dif_date<=183 
+// 3-6 months: 250
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key & dif_date >183  & dif_date<=365 
+// 6-12 months: 305
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key & dif_date >365  & dif_date<=730 
+// 1-2 yr: 234
+count if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn==1 & drug_key==prev_drug_key & dif_date >730  & dif_date<. 
+// 424 2yr+: 424
+
+cap drop dif_grp 
+egen dif_grp=cut(dif_date), at(0, 30, 90, 183,365,730,20000) label 
+tab dif_grp  if drug_status==1 & prev_drug_status==1 & drug_status_raw=="start" & prev_drug_status_raw=="start" & visit_indexn==prev_visit_indexn & drug_key==prev_drug_key,m 
+
+sum dif_date if dif_grp==5 
+groups source dif_grp, sepby(source) ab(16)
+*/
+// RCC examples 
+/*
+// count how many can be changed from stop to continue from TAE with drug status_raw of stop 
+count if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE") & drug_indexn!=1 & drug_indexn<drug_indexN
+// 65 in the middle of the exposure, could be changed from stop to continue, depending on the distance between current drug date and the prior drug date.
+count if drug_key=="rituxan" & drug_status_raw=="stop" & drug_status==3 & strpos(dw_event_type,"TAE") & drug_indexn!=1 & drug_indexn<drug_indexN & drug_date-last_drug_date<365 & visit_indexn-last_visit_indexn<=1
+// 57 out of 65 can be changed from stop to continue 
+
+count if drug_key=="rituxan" & drug_status_raw=="unknown" & drug_status==3 & drug_indexn!=1 & drug_indexn<drug_indexN
+// 37 in the middle of the exposure, could be changed from stop to continue, depending on the distance between current drug date and the prior drug date.
+count if drug_key=="rituxan" & drug_status_raw=="unknown" & drug_status==3 & drug_indexn!=1 & drug_indexn<drug_indexN  & drug_indexn!=1 & drug_indexn<drug_indexN & drug_date-last_drug_date<365 & visit_indexn-last_visit_indexn<=1
+// 28 out of 37 can be changd to continue, and all of the unknown does not have any values of drug_plan 
+*/
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// 2025-03-21 1. replace n=86 rows of drug status for rituxan from stop to continue 
+
+replace drug_status=2 if drug_key=="rituxan" & (drug_status_raw=="stop" & strpos(dw_event_type,"TAE")|drug_status_raw=="unknown")  & drug_status==3 & drug_indexn!=1 & drug_indexn<drug_indexN & drug_date-prev_drug_date<365 & visit_indexn-prev_visit_indexn<=1
+
+// 2025-03-21 2. check if any other drugs are used before a rituxan drug date; if no other b/tsDMARDs are used prior to rituxan with drug_indexn>1 and rituxan is a start, change start to continue; if another drug was used prior to rituxan status with start and drug_indexn>1, then keep rituxan status as start. 
+
+
+for any 006030047: list  subject_number drug_key prev_drug_key visitdate visit_indexn drug_date drug_indexn drug_indexN drug_plan drug_status_raw drug_status  if subject_number=="X", noobs ab(16) sepby(drug_key)
+
+count if drug_key=="rituxan" & drug_indexn>1 & drug_status==1 & drug_date-prev_drug_date<365 & visit_indexn-prev_visit_indexn<=1 & prev_drug_key=="rituxan"
+ // 249
+replace drug_status=2 if drug_key=="rituxan" & drug_indexn>1 & drug_status==1 & drug_date-prev_drug_date<365 & visit_indexn-prev_visit_indexn<=1 & prev_drug_key=="rituxan" 
+
+for any 006030047: list  subject_number drug_key prev_drug_key visitdate visit_indexn drug_date drug_indexn drug_indexN drug_plan drug_status_raw drug_status  if subject_number=="X", noobs ab(16) sepby(drug_key)
+
+// no change for this one, remains 20  
+replace drug_status=1 if drug_key=="rituxan" & inlist(drug_plan, 2, 9) & drug_indexn==1 & drug_status==3 & next_drug_date-drug_date<365 & inlist(next_drug_plan, 3,5,6,.)
+
+// limit switching for this one 
+count if drug_key=="rituxan" & drug_indexn>1 & drug_indexn<drug_indexN & drug_status==3 & drug_date-prev_drug_date<365 & visit_indexn-prev_visit_indexn<=1 & drug_indexn<drug_indexN & prev_drug_key=="rituxan" & next_drug_key=="rituxan" // 128
+
+replace drug_status=2 if drug_key=="rituxan" & drug_indexn>1 & drug_indexn<drug_indexN & drug_status==3 & drug_date-prev_drug_date<365 & visit_indexn-prev_visit_indexn<=1 & drug_indexn<drug_indexN  & prev_drug_key=="rituxan" & next_drug_key=="rituxan"
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+*for any 002030071 : list subject_number visitdate visit_indexn last_visit_indexn drug_key drug_date drug_indexn drug_indexN drug_plan drug_status generic_status if subject_number=="X" & drug_key=="rituxan", noobs ab(16) sepby(drug_key) 
+
+
+
+
+*for any 002030071 : list subject_number visitdate visit_indexn last_visit_indexn drug_key drug_date last_drug_date drug_indexn drug_indexN drug_plan drug_status generic_status if subject_number=="X" & drug_key=="rituxan", noobs ab(16) sepby(drug_key) 
+
+*count if drug_key=="rituxan" & inlist(drug_plan, 2, 9) & drug_indexn==1 & drug_status==3 & next_drug_date-drug_date<365 & inlist(next_drug_plan, 3,5,6,.)
+// 20
+*count if drug_key=="rituxan" & drug_indexn>1 & drug_status==1 & drug_date-last_drug_date<365 & visit_indexn-last_visit_indexn<=1 // 317
+*count if drug_key=="rituxan" & drug_indexn>1 & drug_status==3 & drug_date-last_drug_date<365 & visit_indexn-last_visit_indexn<=1 & drug_indexn<drug_indexN 
+// 275
+
+
+
+
+// tentatively replace 3 situations to "continue" and check the 8 examples 
+// replace to start first for 002030071 so the next one will be continue 
+*replace drug_status=1 if drug_key=="rituxan" & inlist(drug_plan, 2, 9) & drug_indexn==1 & drug_status==3 & next_drug_date-drug_date<365 & inlist(next_drug_plan, 3,5,6,.)
+// 20
+*replace drug_status=2 if drug_key=="rituxan" & drug_indexn>1 & drug_status==1 & drug_date-last_drug_date<365 & visit_indexn-last_visit_indexn<=1 
+// 317
+
+
+
+count if drug_status==2 & generic_status!=2 & drug_key=="rituxan" // 467
+tab generic_status if drug_status==2 & generic_status!=2 & drug_key=="rituxan", m
+
+replace generic_status=2 if drug_status==2 & generic_status!=2 & drug_key=="rituxan" // 467
+
+count if drug_status==1 & generic_status==3 & drug_key=="rituxan" // 21
+
+replace generic_status=1 if drug_status==1 & generic_status==3 & drug_key=="rituxan" // 21 
+ 
+// list examples 
+
+*for any 002030071 : list subject_number visitdate drug_date next_drug_date drug_indexn drug_indexN drug_plan next_drug_plan drug_status if subject_number=="X", noobs ab(16) sepby(drug_key)
+for any 000000005 001010052 001020099 001120562 002030071 002051146 003002423 006030044 : list subject_number drug_key generic_key visitdate visit_indexn drug_date drug_indexn drug_indexN drug_plan drug_status generic_status  if subject_number=="X" , noobs ab(16) sepby(drug_key)
+
+for any 006030047 : list dw_event_type subject_number drug_key visitdate visit_indexn visit_indexN drug_date drug_indexn drug_indexN drug_plan drug_status_raw drug_status if subject_number=="X" & inlist(drug_key,"rituxan", "orencia"), noobs ab(16) sepby(drug_key)
+
+foreach x in drug generic{
+    count if `x'_status!=`x'_status_Mar2025
+}
+
+// 612 changed ==>511 for 2025-03-21
+drop drug_status_Mar2025 generic_status_Mar2025 prev_drug_date prev_visit_indexn prev_drug_plan prev_drug_status_raw prev_drug_status prev_drug_key dif_date next_drug_date next_drug_plan next_drug_key 
+
+append using temp\2_1_drug_status_cDMARDS
+save temp\2_1_drugexpdetails_status, replace 
+
+unique subject_number generic_key drug_date
+corcf * using "$pdata\temp\2_1_drugexpdetails_status", id(subject_number generic_key drug_date)
+/*
+drug_status: 848 mismatches*/
+// rough count of re-starts 
+unique subject_number if drug_key=="rituxan" & drug_status==1 & drug_indexn>1 // 281
+
+// 2025-03-20 also need to check if other b/tsDMARDs are used for the listed subjects 
+*use temp\test\2_1_drugexpdetails_status_2025-03-24, clear 
+
+*for any 000000005 001010052 001020099 001120562 002030071 002051146 003002423 006030044 : list subject_number drug_key generic_key visitdate visit_indexn drug_date drug_indexn drug_indexN drug_plan drug_status generic_status  if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+
+/* 
+sort subject_number visitdate drug_key drug_date 
+for any  006030044 : list subject_number drug_key generic_key visitdate visit_indexn visit_indexN last_visit drug_date drug_indexn drug_indexN drug_plan drug_status generic_status  if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+2025-01-14 note from discussion with Page and Skyler. Found humira does not have a stop flag on visit 9. There should be a stop and a stop date should be imputed, because cimzia started on visit #10. 
 for any 001010063: list dw_event_type subject_number report_date drug_date linked_visit visit_indexn drug_key drug_plan drug_status drug_status_raw drug_indexn if subject_number=="X"  & inlist(drug_category, 250,390), noobs ab(12) sepby(generic_key)
 
 count if drug_indexn==2 & drug_indexN==2 & drug_status==2 & inlist(drug_plan,3, 5,6) & inlist(drug_category, 250,390) // 7,144 and 2,468 b/tsDMARDs
- 
+*/ 
 // examples as of 2024-10-08 fix 
 // examples for prednisone  
 *for any 001020065 001020233: list dw_event_type subject_number report_date drug_date linked_visit visit_indexn drug_key drug_plan drug_status drug_status_raw drug_indexn generic_status generic_indexn if subject_number=="X" & strpos(generic_key,"corti"), noobs ab(12) sepby(generic_key)
@@ -597,27 +983,29 @@ count if drug_indexn==2 & drug_indexN==2 & drug_status==2 & inlist(drug_plan,3, 
 // example for enbrel provided by Bob.
 *for any 001040002: list dw_event_type subject_number report_date drug_date linked_visit visit_indexn drug_key drug_plan drug_status drug_status_raw drug_indexn generic_status generic_indexn if subject_number=="X" & inlist(drug_key,"actemra", "enbrel", "orencia"), noobs ab(12) sepby(generic_key)
 
+// 2025-03-24 change looks OK, continue to the end and see the numbers for ROM monthly enrollment report 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////	A2. create drug/treatment history 
 ////////////////////////////////	Add all visits data to DOI data 
  
-
-rename linked_visit visitdate 
+*use temp\2_1_drugexpdetails_status,  clear 
+ 
 *merge m:1 subject_number visitdate generic_key drug_key using "~\Corrona LLC\Biostat Data Files - RA\monthly\for_update\preTM_pt_drugs_en_long"
 
 // 2024-02-29 adding drug_key to match hx status for both generic and drug 
 merge m:1 subject_number visitdate generic_key drug_key using ..\..\for_update\preTM_pt_drugs_en_long
 /*
-v20241203---->fixed 
     Result                           # of obs.
     -----------------------------------------
-    not matched                     1,073,411
-        from master                 1,053,943  (_merge==1)
-        from using                     19,468  (_merge==2)
+    not matched                     1,083,559
+        from master                 1,064,090  (_merge==1)
+        from using                     19,469  (_merge==2)
 
-    matched                            69,776  (_merge==3)
+    matched                            69,799  (_merge==3)
     -----------------------------------------
+
 */
+
 
 ///////////	to carry enrollment reported pt use to DOI event data
 tab generic_key if _m==2 
@@ -710,7 +1098,7 @@ sort subject_number generic_key generic_indexn
 
 save temp\2_1_expdetails_init, replace
 
-*save temp\2_1_expdetails_init_test_2024-10-30, replace
+*save temp\test\2_1_expdetails_init, replace
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 // 2024-01-09 create generic drug start date and drug stop date ==>>> b/tsDMARDs only !!!!
@@ -731,33 +1119,13 @@ save temp\2_1_expdetails_init, replace
 
 // 2024-02-08: also need to create generic/drug_start/stop 
 // 2024-05-03 for the imputation of start date=(drug_date+prev_visit)/2 when prev_visit is not missing; if prev_visit is missing, use 
-use temp\2_1_expdetails_init, clear 
+use temp\2_1_expdetails_init, clear
 
-*use 2_1_expdetails_init_2024-05-07, clear 
-*use 2_1_expdetails_init_2024-05-22, clear
-*preserve 
+// 2025-03-20: use midpoint between two visits instead of drug dates and prior/next visitdates for the imputation of start/stop dates to avoid overlapped drug exposures.  
+// 2025-04-07 for start date, change back to using midpoint between drug date and prev visit, to avoid having start date later than stop date.
+*use temp\test\2_1_expdetails_init, clear 
+
 keep if drug_category==250|drug_category==390
-
-/* 2025-01-14 test count for change from < to <=
-foreach x in generic drug{
-sort subject_number drug_date
-by subject_number : gen next_`x'=`x'_key[_n+1]  if `x'_indexn==`x'_indexN
-by subject_number : gen prev_`x'=`x'_key[_n-1]  if `x'_indexn==1
-// ying suggested using the next drug start date directly instead of using the midpoint & `x'_indexn==`x'_indexN& `x'_indexn==`x'_indexN& `x'_indexn==`x'_indexN 
-// updated by adding not the same day as the next drug; 
-//2024-02-15 added next drug date not missing and `x'_status<3 instead of ==2 
-// 2025-01-14 changed from drug_date<drug_date[_n+1] to drug_date<=drug_date[_n+1] because after 001010063 humira, simponi started the same date on visit 9
-
-*by subject_number: replace `x'_stop=1  if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<=drug_date[_n+1] & drug_date[_n+1]!=.
-count if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<drug_date[_n+1] & drug_date[_n+1]!=. // 4,045 generic, 4,813 drug
-count if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date==drug_date[_n+1] & drug_date[_n+1]!=. // 597/643
-count if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<=drug_date[_n+1] & drug_date[_n+1]!=.
-}
-foreach x in generic drug{
-	cap drop next_`x'
-	cap drop prev_`x'
-}
-*/
 
 // overall 
 foreach x in generic drug{
@@ -803,7 +1171,10 @@ by subject_number : gen prev_`x'=`x'_key[_n-1]  if `x'_indexn==1
 
 by subject_number: replace `x'_stop=1  if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<=drug_date[_n+1] & drug_date[_n+1]!=.
 
-by subject_number: replace `x'_stop_date=next_visit if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<=drug_date[_n+1] & drug_date[_n+1]!=.
+// 2025-03-19 LG change imputation from next visit date to the midpoint between the drug date and the next visit to avoid possible overlapped drug exposures.
+// 2025-03-20 LG changed from drug date to visitdate 
+by subject_number: replace `x'_stop_date=(visitdate+next_visit)/2 if `x'_status<3  & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<=drug_date[_n+1] & drug_date[_n+1]!=.
+
 by subject_number: replace `x'_stop_visit=next_visit if `x'_status<3 & next_visit!=. & next_`x'!="" & next_`x'!=`x'_key & drug_date<=drug_date[_n+1] & drug_date[_n+1]!=.
 
 // 2024-02-09 did not report start but had a stop after a stop from another drug  001020071      xeljanz   2022-01-28
@@ -836,7 +1207,7 @@ by subject_number `x'_key :replace `x'_start_visit=visitdate if `x'_status!=1 & 
 // did not report stop and have another start, eg. 143011134 enbrel 003001448 orencia 4th exposure; use the midpoint between the current and the next drug date.
 sort subject_number `x'_key `x'_indexn
 by subject_number `x'_key:replace `x'_stop=1 if `x'_status!=3 & `x'_status[_n+1]==1
-by subject_number `x'_key:replace `x'_stop_date=(drug_date+next_visit)/2 if `x'_status!=3 & `x'_status[_n+1]==1
+by subject_number `x'_key:replace `x'_stop_date=(visitdate+next_visit)/2 if `x'_status!=3 & `x'_status[_n+1]==1
 by subject_number `x'_key:replace `x'_stop_visit=next_visit if `x'_status!=3 & `x'_status[_n+1]==1
 
 // drug from continue to start, stop is created but start is not, example  001020004 pred   2015-12-30
@@ -853,7 +1224,7 @@ by subject_number `x'_key:replace `x'_start_visit=visitdate if `x'_status>1 & `x
 // 2024-02-15 corrected from indexn to indexN  
 // 2024-05-07 substitute from dw_event_type=="FU" to visit_indexn>1
 replace `x'_start=1 if `x'_status>1 & `x'_indexN==1 & visit_indexn>1 & `x'_start_date==.
-replace `x'_start_date=(drug_date+prev_visit)/2 if `x'_status>1 & `x'_indexN==1 & visit_indexn>1 & `x'_start_date==.
+replace `x'_start_date=(visitdate+prev_visit)/2 if `x'_status>1 & `x'_indexN==1 & visit_indexn>1 & `x'_start_date==.
 replace `x'_start_visit=visitdate if `x'_status>1 & `x'_indexN==1 & visit_indexn>1 & `x'_start_visit==.
 
 
@@ -880,12 +1251,18 @@ drop prev_`x' next_`x'
 }
 
 // 2025-01-14 note from discussion with Page and Skyler counts for JAKi used together with bDMARDs. Found humira does not have a stop flag on visit 9. There should be a stop and a stop date should be imputed. Found simponi started on the same drug date as humira, changed from < next drug date to <= for the fix. 
-for any 001010063: list subject_number visitdate visit_indexn drug_date drug_key drug_plan drug_status drug_status_raw drug_indexn drug_start drug_start_date drug_stop drug_stop_date if subject_number=="X"  & inlist(drug_category, 250,390), noobs ab(12) sepby(generic_key)
+*for any 001010063: list subject_number visitdate visit_indexn drug_date drug_key drug_plan drug_status drug_status_raw drug_indexn drug_start drug_start_date drug_stop drug_stop_date if subject_number=="X"  & inlist(drug_category, 250,390), noobs ab(12) sepby(generic_key)
+
+// 2025-04-10 make sure DQ report NC33 will not showing start date later than stop date.
+count if drug_start_date>drug_stop_date & drug_start_date<.
+count if generic_start_date>generic_stop_date & generic_start_date<.
 
 compress
 save temp\2_1_btsDMARDs_starts, replace
 
-*save temp\2_1_btsDMARDs_starts_2024-10-30, replace
+* use temp\2_1_btsDMARDs_starts, clear
+
+* save temp\testing\2_1_btsDMARDs_starts, replace
 
 
 /* 2024-08-13 check bug fix 
@@ -923,16 +1300,15 @@ for any 064010517:list dw_event_type subject_number  drug_plan generic_key gener
 // 2024-01-12 create generic drug start date and drug stop date ==>>> cDMARDs only !!!!
 //////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-*use  ".\temp_data\build_doi_exp_details_v20231215_2024-01-10", clear
-*codebook drug_category
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 // separately create for cDMARDs or other (690:cDMARDs, 710: pred; 900 includes invest_agent)
 //////////////////////////////////////////////////////////////////////////////////////////////
+
 use temp\2_1_expdetails_init, clear 
 
 
-*use temp\2_1_expdetails_init_test_2024-10-30, clear 
+* use temp\test\2_1_expdetails_init, clear 
 
 
 drop if drug_category==250|drug_category==390 
@@ -969,7 +1345,8 @@ replace stop_date=(drug_date+next_event)/2 if drug_status==2 & generic_indexn==g
 */
 // 2024-02-14 update: 001020004 pred 2020-08-18 started and not reported in later visits, generic_indexn=indexN and visit_indexn<visit_indexN, should create stop date and stop visit as the next visitdate 
 replace `x'_stop=1 if `x'_indexn==`x'_indexN & visit_indexn<visit_indexN & `x'_status!=3
-replace `x'_stop_date=next_visit if `x'_indexn==`x'_indexN & visit_indexn<visit_indexN & `x'_status!=3
+// 2025-03-19 LG changed from next visit to the midpoint between drug date and the next visitdate to be consistent with b/tsDMARDs.
+replace `x'_stop_date=(drug_date+next_visit)/2 if `x'_indexn==`x'_indexN & visit_indexn<visit_indexN & `x'_status!=3
 replace `x'_stop_visit=next_visit if `x'_indexn==`x'_indexN & visit_indexn<visit_indexN & `x'_status!=3
 
 /// two stops within the same drug, or 2024-03-21 from stop to continue  
@@ -1031,7 +1408,7 @@ by subject_number `x'_key: replace `x'_start_visit=`x'_start_visit[_n-1] if `x'_
 append using temp\2_1_btsDMARDs_starts
 
 
-*append using temp\2_1_btsDMARDs_starts_2024-10-30 
+*append using temp\test\2_1_btsDMARDs_starts 
 
 
 sort subject_number generic_key generic_indexn
@@ -1049,10 +1426,11 @@ compare generic_start_order generic_stop_order if generic_stop==1
 
 compare drug_start_order drug_stop_order if drug_stop==1
 
+
 compress 
 save temp\2_1_allDMARDs_starts, replace 
 
-*save 2_1_allDMARDs_starts, replace
+*save temp\test\2_1_allDMARDs_starts, replace 
 
 
 /* 2024-08-13 check bug fix results for not imputing start date at enrollment when drug date is prior to enrollment and status is stop 
@@ -1080,7 +1458,8 @@ for any 001020071:list subject_number drug_key visitdate drug_plan generic_statu
 // 2024-03-28 check if all start dates <=visits stop dates <=visits 
 count if drug_start_date>drug_start_visit & drug_start_date<. // 220==>234==>226==>232
 count if drug_stop_date>drug_stop_visit & drug_stop_date<. // 39==>209==>230==>235
-
+// 2025-03-19 testing the change from next visit to midpoint between drug date and next visit 
+count if drug_stop_date==next_visit  & next_visit<. // 0
 mdesc drug_start_date drug_start_visit drug_stop_date drug_stop_visit, ab(32) 
 
 
@@ -1105,6 +1484,8 @@ for any  101010781 : list drug_key subject_number visitdate visit_indexn prev_vi
 use 2_1_allDMARDs_starts, clear*/
 
 use temp\2_1_allDMARDs_starts, clear
+
+*use temp\test\2_1_allDMARDs_starts, clear 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // 2024-01-12: try to create baseline_visit (within 6 months prior to the initiation, if initiation is prior to a visit) for b/tsDMARDs and cDMARDs initiators 
 foreach x in generic drug{
@@ -1268,33 +1649,14 @@ lab var hx_`x' "History of `x'"
 lab val hx_`x' ny
 }
 
-/*
-for any 001020004: list subject_number visitdate drug_date drug_key hx_drug drug_key hx_drug hx_humira* if subject_number=="X", noobs ab(16) sepby(visitdate)
-
-for any 002021196: list subject_number visitdate drug_date drug_key drug_status init_drug hx_drug drug_key hx_drug hx_humira* if subject_number=="X", noobs ab(16) sepby(visitdate)
-
-
-// check 002021196
-for any 002033107: list subject_number visitdate drug_date drug_key hx_drug hx_adalimumab* hx_humira* hx_amjevita*  if subject_number=="X", noobs ab(16) sepby(visitdate)
-//
-for any  178130226: list subject_number visitdate drug_date drug_key hx_drug generic_key hx_generic hx_adalimumab* hx_humira*  if subject_number=="X", noobs ab(16) sepby(visitdate)
-
-for any 002033107: list subject_number visitdate drug_date drug_key hx_adalimumab hx_humira hx_amjevita  if subject_number=="X", noobs ab(16) sepby(visitdate)
-
-// test  002033107
-for any RA-178-0001 : list subject_number visitdate drug_key drug_date drug_start_date init_drug hx_drug hx_enbrel* if subject_number=="X" , noobs ab(16)
-
- 
-for any 100326958: list subject_number visitdate drug_key drug_date drug_start_date init_drug hx_drug hx_actemra if subject_number=="X" , sepby(visitdate) noobs ab(16)
-*/
 
 *groups hx_eta hx_enbrel hx_erelzi, missing ab(16)
 // 2024-10-30 LG added more biosimilars to humira 
-groups hx_adalimumab hx_humira hx_amjevita hx_cyltezo hx_hadlima hx_hulio hx_hyrimoz hx_yusimry, missing ab(16)
+*groups hx_adalimumab hx_humira hx_amjevita hx_cyltezo hx_hadlima hx_hulio hx_hyrimoz hx_yusimry, missing ab(16)
 // 2024-10-30 LG added ixifi to remicade
-groups hx_infliximab hx_remicade hx_renflexis hx_inflectra hx_avsola hx_ixifi hx_remicade_bs, missing ab(16)
+*groups hx_infliximab hx_remicade hx_renflexis hx_inflectra hx_avsola hx_ixifi hx_remicade_bs, missing ab(16)
 // 2024-10-30 LG added riabni to rituxan 
-groups hx_rituximab hx_rituxan hx_riabni hx_ruxience hx_truxima hx_rituxan_bs, missing ab(16)
+*groups hx_rituximab hx_rituxan hx_riabni hx_ruxience hx_truxima hx_rituxan_bs, missing ab(16)
 
 *groups hx_tofa hx_xeljanz hx_xeljanz_xr, missing ab(16) // pt reported did not specify xeljanz or xeljanz_xr, use tofa is more accurate
 
@@ -1336,25 +1698,6 @@ lab var pres_`x' "`x' Prescribed"
 lab val pres_`x' ny
 }
 
-// 2024-10-08 numbers dropped because of the adjustment of drug status to stop 
-unique subject_number if pres_drug==1 & drug_key=="remicade" // v20240401 9,338==>v20240501: 9,361==>9,328==> v20240601: 9,340==>v20240701z: 9,354==>v20240801 revised: 9,347
-
-unique subject_number if pres_drug==1 & drug_key=="humira" // 11,238 v20240701z: 11240==>v20240801 revised:11,232
-unique subject_number if pres_drug==1 & drug_key=="enbrel" // 11,314 z:11313==>v20240801 revised:11317
-unique subject_number if pres_drug==1 & drug_key=="olumiant" // 459->463->460->464 z:468==>v20240801 revised:473
-unique subject_number if pres_drug==1 & drug_key=="renflexis" // 291->287->288==>v20240801 revised:287
-unique subject_number if pres_drug==1 & drug_key=="inflectra" // 430->431->433 z:431==>v20240801 revised:432
-
-/*
-sort subject_number visitdate drug_key drug_indexn 
-for any 000123495 000123507 000952462 001020131: list subject_number drug_key drug_indexn drug_indexN drug_status drug_start drug_stop drug_stop_date drug_date visitdate visit_indexn visit_indexN pres_drug if inlist(drug_category, 250,390) & subject_number=="X", noobs ab(16) sepby(drug_key)
-
-
-// example ==>fixed drug vs. generic status inconsistency 
-// 2024-05-07 actemra use at enrollment should be continuous, but was coded as 3 starts pres_drug pres_generic
-for any 205020177: list subject_number dw_event_type report_date visitdate visit_indexn drug_key  drug_date drug_status drug_status_raw generic_status  if subject_number=="X" & visit_indexn==1, sepby(drug_key) noobs ab(12)
-*/
-
 // 2024-04-02 not including b/tsDMARDs, re-calculate for Quarterly report to make sure remicade is accurate 
 sort subject_number visitdate drug_date 
 //$drug_list
@@ -1384,26 +1727,6 @@ replace pres_cdmards_name=pres_cdmards_name + " " + "`x'" if pres_`x'==1 & pres_
 lab var pres_cdmards_name "Name(s) of current cDMARDs"
 note pres_cdmards_name: including arava azulfidine cyclosporine imuran minocin mtx plaquenil 
  
-/*
-groups pres_cdmards_name, missing ab(32) 
-
-for any 000000000 000000001: list subject_number generic_key drug_key visitdate drug_date pres_mtx pres_plaquenil pres_cdmards_name if subject_number=="X", sepby(visitdate) noobs ab(16)
-
-tab init_drug hx_drug, m 
-tab init_generic hx_generic,m 
-
-
-// 2024-01-22 re-visit more possible identifications for 6/12 months FU visit for visits not in DOI view 
-// b/tsDMARDs example 9 for ppt study_source  dw_event_type report_visitinfliximab_start_date remicade_start_date inflectra_start_date avsola_start_date renflexis_start_date 
-for any 002020417: list subject_number generic_key drug_key generic_indexn drug_date visitdate visit_indexn generic_status hx_generic init_generic generic_start_date generic_stop_date generic_init_date generic_base_visit if generic_key=="infliximab" & subject_number=="X", noobs ab(15) sepby(generic_key)
-
-// 2024-07-02 re-check GR's examples for humira vs. adalimumab==>fixed 
-for any 101010781 101011364: list subject_number generic_key drug_key generic_indexn drug_date visitdate visit_indexn generic_status generic_start_date generic_stop_date drug_status drug_start_date drug_stop_date if generic_key=="adalimumab" & subject_number=="X", noobs ab(15) sepby(generic_key)
-
-// generic/drug_indexN=1 so humira was coded as start. if only one start row and is a past use, should code as stop...
-sort subject_number drug_date
-for any 101010781 : list subject_number generic_key drug_key drug_date visitdate prev_visit visit_indexn drug_status_raw generic_status generic_start_date generic_stop_date drug_status drug_start_date drug_stop_date if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(15) sepby(generic_key)
-*/
 
 drop pt_reported_en 
 
@@ -1486,30 +1809,6 @@ by subject_number `x'_key: replace reason_`i'_category_code=reason_`i'_category_
 
 drop miss_reason*
 
-/*
-// 2024-05-08 Rhiannon's example for missing disc reason at the stop row 
-for any 002021371: list subject_number visitdate visit_indexn dw_event_type drug_key drug_date drug_date_raw drug_indexn drug_status drug_stop drug_stop_date reason_1 if subject_number=="X" & drug_key=="rinvoq", noobs ab(16)
-
-
-*save 2_1_drugexpdetails_2024-05-22, replace 
-
-// 2024-05-10 testing Bob M's case where rinvoq stopped in dwsub1 but not in drugexp data 
-*use 2_1_drugexpdetails_2024-05-22, clear 
-for any 101010060: list dw_event_type subject_number visitdate visit_indexn report_date drug_plan drug_key drug_status drug_status_raw drug_date init_drug drug_start drug_start_date dose_value discontinued_due_to_ae if subject_number=="X" & drug_key=="rinvoq", noobs ab(12)
-*/
-// 2024-07-02 two stops in a row, not a problem. the drug date for the FU is more than 1 yr from the 2nd TAE. 
-
-/*tricky case, count how many 
-sort subject_number generic_key generic_indexn
-*by subject_number generic_key: replace generic_status=3 if visit_indexn==visit_indexN & generic_indexn==generic_indexN & generic_status==2 & (dose_value<. |freq_value<.) & discontinued_due_to_ae[_n-1]==”yes” & drug_date-drug_date[_n-1]<30
-gen disc_replace=.
-by subject_number generic_key: replace disc_replace=1 if visit_indexn==visit_indexN & generic_indexn==generic_indexN & generic_status==2 & (dose_value<. |freq_value<.) & discontinued_due_to_ae[_n-1]=="yes" & drug_date-drug_date[_n-1]<30
-tab disc_replace, m // only 24 
-*/ 
-
-*merge m:1 subject_number using "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-10-01\clean_table\1_1_subjects", keepus(death_dt)
-
-
 
 // 2024-06-03 need to drop visits after death date for several patients, death_dt is from 1.1 subjects data 
 
@@ -1545,102 +1844,247 @@ drop *_mode
 
 codebook visitdate drug_date
 
-*save temp\2_1_drug_exp_details_2024-10-30, replace 
-compress 
-save 2_1_drugexpdetails_$datacut, replace
-
-*corcf * using temp\2_1_drugexpdetails_2024-11-01_old, id(subject_number generic_key drug_date)
- 
-corcf * using "$pdata\\2_1_drugexpdetails_$pdatacut", id(subject_number generic_key drug_date)
-
-use "$pdata\\2_1_drugexpdetails_$pdatacut", clear
-// raw count for QRR, all increased from dec2024 
-unique subject_number if pres_drug==1 & drug_key=="remicade" //9,314
-unique subject_number if pres_drug==1 & drug_key=="humira" // 11,161
-unique subject_number if pres_drug==1 & drug_key=="enbrel" // 11,225
-unique subject_number if pres_drug==1 & drug_key=="olumiant"  //469
-unique subject_number if pres_drug==1 & drug_key=="renflexis" //291
-unique subject_number if pres_drug==1 & drug_key=="inflectra" //417
-
-/* 
-rename drug_name_raw dec24_drug_name_raw
-rename drug_name_code_raw dec24_drug_name_code_raw 
-merge 1:1 subject_number generic_key drug_date using "$pdata\\2_1_drugexpdetails_$pdatacut", keepus(drug_name_raw drug_name_code_raw)
-br subject_number visitdate generic_key drug_date *drug_name_raw *drug_name_code_raw if _m==3 & (drug_name_raw!=dec24_drug_name_raw|drug_name_code_raw !=dec24_drug_name_code_raw)
-// drug_name_raw are all lower case
-preserve 
-keep if _m==3 & drug_name_raw!=dec24_drug_name_raw
-rename drug_name_raw nov24_drug_name_raw
-list subject_number visitdate drug_date generic_key drug_key *drug_name_raw in 1/20, noobs ab(16)
-restore 
-
-br subject_number visitdate generic_key drug_date *drug_name_raw *drug_name_code_raw if _m==3 & drug_name_code_raw !=dec24_drug_name_code_raw
-
-groups generic_key drug_name_code dec24_drug_name_code drug_name_code_raw if  _m==3 & drug_name_code_raw !=dec24_drug_name_code_raw, noobs ab(16)
-
-2024-12-04 considered as a minor issue, will check with EDW later 
-  +----------------------------------------------------------------------------------------------+
-  |        generic_key   drug_name_code   dec24_dru~de_raw   drug_name_code~w    Freq.   Percent |
-  |----------------------------------------------------------------------------------------------|
-  |          abatacept              100                100                920        1      0.00 |
-  |              arava              530                530                531        1      0.00 |
-  |         azulfidine              551                550                551        1      0.00 |
-  | certolizumab_pegol              140                920                140        1      0.00 |
-  |    corticosteroids              730                730                920        2      0.00 |
-  |----------------------------------------------------------------------------------------------|
-  |          golimumab              170                170                171        2      0.00 |
-  |          golimumab              170                171                170        1      0.00 |
-  |          plaquenil              520                521                520   117431     99.99 |???
-  |        tofacitinib              301                301                300        1      0.00 |
-  +----------------------------------------------------------------------------------------------+
-
-
-rename drug_name_code_raw nov24_drug_name_code_raw
-groups generic_key drug_name drug_name_code nov24_drug_name_code_raw dec24_drug_name_code if  generic_key=="plaquenil" & _m==3 & nov24_drug_name_code_raw !=dec24_drug_name_code_raw, noobs ab(24)
-
-use 2_1_drugexpdetails_$datacut, clear 
-br subject_number visitdate visit_indexn drug_key if subject_number=="000000000"
-rename visitdate dec24_visitdate 
-rename visit_indexn dec24_visit_indexn
-merge 1:1 subject_number generic_key drug_date using "$pdata\\2_1_drugexpdetails_$pdatacut", keepus(visitdate visit_indexn)
-br subject_number visitdate generic_key drug_date *visitdate if _m==3 & visitdate!=dec24_visitdate 
+/*
+2025-01-27 based on the DQ report for 2025-01-01 datacut 
+1. drop a few not needed variables 
+2. add variable labels to unlabeled variables
 */
 
+ds, not(Varlabel) v(32)
+
+ds c_* coll_*, v(32)
+drop c_dw_event_instance_key c_site_key c_subject_key 
+drop parent_study_acronym c_is_suppressed_not_seen coll_drug_instance_uid coll_map_uid coll_crf_name_raw coll_crf_ordinal coll_group_type_acronym coll_group_ordinal
+// 2025-04-07 added 
+drop   edc_event_name_raw   edc_event_ordinal   
+
+
+lab var drug_status_raw "drug status raw data"
+lab var dose_status_raw "dose status raw data"
+lab var drug_plan_raw "drug plan raw data"
+lab var drug_category_raw "drug category raw data"
+lab var drug_category_code_raw "drug category code raw data"
+lab var drug_name_code "drug name code"
+lab var drug_name_code_raw "drug name code raw data"
+lab var drug_name_raw "drug name raw data"
+lab var dose_unit_raw "dose unit raw data"
+lab var dose_txt_raw "dose text raw data"
+lab var dose_value_raw "dose value raw data"
+lab var dose_unit_code_raw "dose unit code raw data"
+lab var freq_value_raw "frequency value raw data"
+lab var freq_unit_raw "frequency unit raw data"
+lab var freq_unit_code_raw "frequency unit code raw data"
+lab var first_dose_at_visit_code "first dose at visit code"
+lab var route_raw "route raw data"
+lab var route_code_raw "route code raw data"
+lab var tx_changes_due_to_ae_code "did this event result in any of the changes to the medication? (code)"
+lab var discontinued_due_to_ae_code "discontinued due to adverse event? (code)"
+lab var attributed_to_ae_code "event attributed to drug? (code)"
+lab var discontinued_due_to_preg_code "discontinued due to pregnancy? (code)"
+
+foreach x in discontinued_due_to_ae_code discontinued_due_to_preg_code tx_changes_due_to_ae_code cumpt_reported_en generic_start generic_stop drug_start drug_stop {
+lab val `x' ny
+}
+
+forvalues i=1/3{
+	lab var reason_`i'_code "change reason `i' code"
+	lab var reason_`i'_category "change reason `i' category"
+	lab var reason_`i'_category_code "change reason `i' category code"
+}
+
+// 2025-02-10 after running DQ check, adding value labels to reason_i_category_code and drug_status is already labeled, don't know why it appears on NC9.
+lab define reason_cat 1 effectiveness 2 safety 9 other, modify
+forvalues i=1/3{
+    lab val reason_`i'_category_code reason_cat
+}
+
+*use 2_1_drugexpdetails_$datacut, clear 
+ds, not(Varlabel) v(32)
+*lab var edc_event_name_raw  "edc_event_name_raw"
+*lab var edc_event_ordinal "edc_event_ordinal"
+*drop created_date check_stp 
+compress 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+
+*save temp\testing\2_1_drugexpdetails_$datacut, replace
+*corcf * using "2_1_drugexpdetails_2025-04-01_2025-04-04", id(subject_number generic_key drug_date)
+
+
+
+save 2_1_drugexpdetails_$datacut, replace
+
+corcf * using "$pdata\\2_1_drugexpdetails_$pdatacut", id(subject_number generic_key drug_date)
+
+*corcf * using "2_1_drugexpdetails_$datacut", id(subject_number generic_key drug_date)
+
+*erase temp\drug_testing_2025-02-17\2_1_btsDMARDs_starts.dta 
 // erase extra data 
 cap erase temp\2_1_allDMARDs_starts.dta 
 cap erase temp\2_1_btsDMARDs_starts.dta 
 cap erase temp\2_1_drugexpdetails_status.dta 
 cap erase temp\2_1_expdetails_init.dta 
 
-/*
-use 2_1_drugexpdetails_2024-11-01, clear
-corcf * using 2_1_drugexpdetails_2024-11-01_old, id(subject_number generic_key drug_date)
+cap log close 
 
-# delimit;
-for any 001100560     
-002022127      
-002022791 
-012131353  
-019200534 
-035010227
-043916970
-075001111 
-100140374
-100143095
-106020060 
-117010109
-152020175
-154010057
-154010184
-154010238
-167010294 
-205010854
-205070226
-242010012 
-516291075 
-835159011  
-RA-100-0120
-RA-195-0018
-035010151
-135010068: list subject_number visitdate drug_date drug_key drug_name_txt drug_name_raw drug_start drug_stop reason_1 if subject_number=="X" & generic_key=="rituximab", sepby(visitdate) noobs ab(16) ;
-# delimit cr;*/
+/*
+
+// 2025-03-19 testing ROM re-start counts 1,668 
+use temp\2_1_drugexpdetails_status, clear 
+for any 006030047: list subject_number   drug_key   generic_key    visitdate   visit_indexn   visit_indexN drug_date   drug_indexn   drug_indexN drug_plan   drug_status drug_status_raw generic_status if subject_number=="X" & inlist(drug_category, 250, 390) ,  sepby(drug_key) noobs ab(16)
+
+use 2_1_drugexpdetails_$datacut, clear
+// 2025-03-28 provide examples for multiple starts for the same drug, linked to the same visitdate issue. sent to YS. 
+for any 001020262 000123456 001017032 003015085: list subject_number drug_key visitdate visit_indexn drug_date drug_status drug_start_date drug_stop_date if subject_number=="X" & inlist(drug_category, 250,390), sepby(drug_key) noobs ab(16)
+
+merge m:1 subject_number visitdate using 2_3_keyvisitvars_$datacut, keepus(subject_number full_version visitdate exit_form_date exit_reason active_site active_pt)
+codebook visitdate if _m==2 
+tab full_version if _m==2 
+
+       form |
+    version |      Freq.     Percent        Cum.
+------------+-----------------------------------
+          4 |      1,104        4.82        4.82
+          5 |      1,383        6.03       10.85
+          6 |      1,872        8.17       19.01
+          7 |      2,872       12.53       31.54
+          8 |        321        1.40       32.94
+          9 |      1,328        5.79       38.73
+         10 |      1,250        5.45       44.18
+         11 |        233        1.02       45.20
+         12 |      1,354        5.91       51.11
+         14 |     10,157       44.30       95.41
+         15 |      1,053        4.59      100.00
+------------+-----------------------------------
+      Total |     22,927      100.00
+
+drop if _m==2
+drop _m 
+// 2025-03-26
+*/
+// 2025-03-25 count how many TAEs are later than the last visitdate, and how many are 12/18 months later 
+unique subject_number if drug_date>last_visit
+tab dw_event_type  if drug_date>last_visit 
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") // & drug_indexn==drug_indexN 
+
+tab drug_status_raw if drug_date>last_visit & strpos(dw_event_type,"TAE"), m
+
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_status_raw=="start"
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_status_raw=="continue"
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_status_raw=="stop"
+
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_date-last_visit<=90
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_date-last_visit>90 & drug_date-last_visit<=180
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_date-last_visit>180 & drug_date-last_visit<=270
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_date-last_visit>270 & drug_date-last_visit<=365
+unique subject_number if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_date-last_visit>365
+
+unique subject_number if drug_date>exit_form_date
+
+list source_acronym dw_event_type subject_number report_date visitdate last_visit drug_date exit_form_date exit_reason death_dt drug_key drug_status_raw if drug_date>exit_form_date, noobs ab(16) sepby(subject_number)
+
+unique subject_number if drug_date>death_dt
+list source_acronym dw_event_type subject_number report_date visitdate last_visit drug_date exit_form_date exit_reason death_dt drug_key drug_status_raw if drug_date>death_dt, noobs ab(16) sepby(subject_number)
+
+tab exit_reason if drug_date>last_visit & strpos(dw_event_type,"TAE"),m
+
+groups exit_reason drug_status_raw if drug_date>last_visit & strpos(dw_event_type,"TAE"), missing ab(16) sepby(exit_reason)
+
+tab source_acronym if drug_date>last_visit & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN // 78% from RCC 
+
+unique subject_number if drug_date-last_visit>365 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN // 57 
+tab source_acronym if drug_date-last_visit>365 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN
+
+unique subject_number if drug_date-last_visit>540 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN // 29 
+
+list source_acronym dw_event_type exit_form_date exit_reason subject_number report_date visitdate last_visit visit_indexn visit_indexN drug_key drug_date drug_status drug_indexn if drug_date-last_visit>540 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN & inlist(drug_category, 250, 390), noobs ab(12)
+
+unique subject_number if drug_date-last_visit>365 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN //& inlist(drug_category, 250, 390)
+count  if drug_date-last_visit>365 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN & inlist(drug_category, 250, 390) // 51
+
+gen dif=report_date-visitdate 
+lab var dif "report_date-visitdate"
+
+list source_acronym dw_event_type subject_number active_pt  visitdate last_visit report_date drug_date exit_form_date death_dt exit_reason drug_key drug_status_raw if drug_date-last_visit>365 & strpos(dw_event_type,"TAE") & exit_reason==3, noobs ab(16) sepby(subject_number) // only 4 do not have any exit forms & inlist(drug_category, 250, 390)  & exit_form_date==. & drug_indexn==drug_indexN
+
+tab active_pt if drug_date-last_visit>540 & strpos(dw_event_type,"TAE") & drug_indexn==drug_indexN,m 
+
+sort subject_number visitdate report_date drug_date 
+for any 100044118 001040537 038010668 269178941 035040452 100707110:list active_pt source_acronym dw_event_type exit_form_date exit_reason subject_number report_date visitdate visit_indexn visit_indexN drug_key drug_date drug_status drug_indexn if subject_number=="X", noobs ab(12) sepby(visitdate)
+ 
+*use temp\test\2_1_drugexpdetails_2025-03-01_2025-03-19, clear
+
+
+// 2025-03-21 checking after the revision if there is rituxan re-started within a year because other b/tsDMARDs used in between
+sort subject_number visitdate drug_key drug_date 
+for any 006030047: list subject_number dw_event_type_acronym  drug_key visitdate   visit_indexn   visit_indexN drug_date   drug_indexn   drug_indexN drug_plan   drug_status drug_status_raw drug_start drug_stop if subject_number=="X" & inlist(drug_key, "rituxan", "orencia") ,  sepby(drug_key) noobs ab(16)
+
+// 2025-04-07 checking DQ check NC 33 
+
+use "$pdata\\2_1_drugexpdetails_$pdatacut", clear
+for any 000000003: list subject_number dw_event_type_acronym  drug_key visitdate   visit_indexn   visit_indexN drug_date   drug_indexn   drug_indexN drug_plan   drug_status drug_status_raw drug_start_date drug_stop_date if subject_number=="X" & inlist(drug_category, 250, 390) ,  sepby(drug_key) noobs ab(12)
+
+
+
+/* re-count ROM monthly enrollment report numbers 
+replace drug_start=. if drug_start==1 & drug_start_date==.  // clean carry forward drug_start prior to enrollment 
+
+* limit drugs since indexn date 
+// 2024-05-01 data included fda_approval_date for every drug except for _bs, invest 
+for any drug_start init_drug: replace X=. if drug_start_date<fda_approval_date & fda_approval_date<. & X==1
+
+tab drug_key if init_drug==1 & visit_indexn==1 & drug_base_visit==. 
+
+*prevalent init: initiation prior enrollment in 12 months with continue use at the enrollment -no stop at enrollment 
+
+// no baseline, initiation prior enrollment 
+replace init_drug=0 if init_drug==1 & visit_indexn==1 & ( drug_base_visit==. | drug_start_date==.) 
+
+sort subject_number drug_key visitdate drug_start drug_date 
+by subject_number drug_key: gen cumstart=sum(drug_start) if visitdate==enroll_visit 
+by subject_number drug_key: gen cumstop=sum(drug_stop) if visitdate==enroll_visit 
+
+clonevar stopdt=drug_stop_date 
+by subject_number drug_key: replace stopdt=stopdt[_n-1] if visit_indexn==1 & stopdt==. & stopdt[_n-1]<. 
+
+by subject_number drug_key visitdate drug_start: gen vtn=_n  if visit_indexn==1 & drug_start==1 
+by subject_number drug_key visitdate drug_start: gen vtN=_N  if  visit_indexn==1 & drug_start==1 
+
+egen prinit=sum(init_drug) if visit_indexn==1, by(subject_number drug_key visitdate) 
+
+sort subject_number drug_key visitdate drug_date 
+by subject_number drug_key visitdate: gen prev_init=1 if visit_indexn==1 & vtN==1 & prinit!=1 & enroll_visit-drug_start_date<366  & (cumstop==0 | cumstop==1 & stopdt>enroll_visit & stopdt[_N] > enroll_visit & stopdt[_N]<. | drug_status[_N]<3) 
+
+replace prev_init=0 if prev_init==1 & drug_start_date==visitdate & cumpt_reported_en==1 // 623 cases -->602
+replace prev_init=0 if drug_indexn>1  & prev_init==1  
+
+
+sort drug_key subject_number visitdate drug_start drug_date 
+by drug_key subject_number visitdate drug_start: gen st1=1 if drug_start==1 & _n==1 
+/*
+gen fu=visit_indexn>1 
+tab drug_key fu if drug_start==1 & init_drug !=1 & prev_init!=1  
+tab drug_key fu if st1==1 & init_drug !=1 & prev_init!=1  
+*/
+replace drug_start=0 if drug_start==1 & st1!=1 
+// 2024-04-18 LG test, use 366 days, suggested by Ying  
+replace drug_start=0 if drug_start==1 & visit_indexn==1 & visitdate-drug_start_date>=366 
+
+*2024-05-16 check first start not true start 
+tab drug_status_raw if visit_indexn==1 & drug_indexn==1 & prev_init==1 , m 
+tab drug_status_raw if visit_indexn==1 & drug_indexn==1 & drug_start==1 , m 
+
+replace prev_init=0 if visit_indexn==1 & drug_indexn==1 & prev_init==1 & drug_status_raw!="start"
+replace drug_start=0 if  visit_indexn==1 & drug_indexn==1 & drug_start==1 & drug_status_raw!="start"
+
+count if drug_key=="rituxan" & prev_init==1  // prevalent initiations 370->390
+
+count if drug_key=="rituxan" & init_drug==1    // total initiations at en/fu  No change
+ 
+count if drug_key=="rituxan" & init_drug==1 & drug_base_visit<.  // initiations with baseline only 1 drop
+
+count if drug_key=="rituxan" & init_drug==1 & drug_base_visit==.    // initiations without baseline 1 increase
+
+count if drug_key=="rituxan" & (init_drug==1 | prev_init==1) // 3035->3055
+
+count if drug_key=="rituxan" & drug_start==1 & init_drug !=1 & prev_init!=1 // 588 ==>333==> 387
+*/

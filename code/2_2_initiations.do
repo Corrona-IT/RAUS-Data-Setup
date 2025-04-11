@@ -95,8 +95,11 @@ Stopped after a follow-up windows — select the visit that is closer to 183 (6 
 *use temp\2_1_drugexpdetails_2024-10-30, clear 
 
 use 2_1_drugexpdetails_$datacut, clear
-
-// 2025-01-15 if the init or start date was after the last visit and was linked to the last visit, do not include in the allinits data 
+// 2025-03-06 double check dates cleaning results 
+codebook drug_date visitdate report_date
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+/* 2025-01-15 if the init or start date was after the last visit and was linked to the last visit, do not include in the allinits data 
 count if drug_start_date>last_visit & drug_start_date<. // 235
 count if generic_start_date>last_visit & generic_start_date<. // 219
 
@@ -107,6 +110,7 @@ count if drug_start==1 & inlist(drug_category,250,390) //& drug_start_date<=last
 count if drug_start==1 & inlist(drug_category,250,390) & drug_start_date>last_visit & drug_start_date<.
 count if drug_start==1 & inlist(drug_category,250,390) & drug_start_date==.
 count if drug_start==1 & inlist(drug_category,250,390) & (drug_start_date<=last_visit|drug_start_date==.) 
+*/
 *br subject_number visitdate drug_key visit_indexn visit_indexN last_visit drug_indexn drug_indexN drug_start drug_start_date if drug_start_date>last_visit & drug_start_date<.
 
 *br subject_number visitdate drug_key visit_indexn visit_indexN last_visit drug_indexn drug_indexN drug_start drug_start_date if drug_init_date>last_visit & drug_init_date<.
@@ -219,6 +223,26 @@ restore
 use temp\start_btdmards_1st_per_visit_drug, clear 
 merge 1:1 subject_number visitdate using temp\start_btdmards_1st_per_visit_generic
 /*
+2025-03-06
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                        19,994
+        from master                    19,960  (_merge==1)
+        from using                         34  (_merge==2)
+
+    matched                            57,213  (_merge==3)
+    -----------------------------------------
+
+v20250203
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                        19,879
+        from master                    19,834  (_merge==1)
+        from using                         45  (_merge==2)
+
+    matched                            57,062  (_merge==3)
+    -----------------------------------------
+
 v20250113
     Result                           # of obs.
     -----------------------------------------
@@ -227,16 +251,6 @@ v20250113
         from using                         42  (_merge==2)
 
     matched                            56,934  (_merge==3)
-    -----------------------------------------
-
-v20241101 
-    Result                           # of obs.
-    -----------------------------------------
-    not matched                        19,510
-        from master                    19,470  (_merge==1)
-        from using                         40  (_merge==2)
-
-    matched                            56,723  (_merge==3)
     -----------------------------------------
 */
 
@@ -945,22 +959,23 @@ cap erase temp\init_`y'.dta
 }
 cap erase temp\allvisits_starts.dta
 cap erase temp\drug_temp.dta 
-
+ds, not(Varlabel) v(32)
 use 2_2_allinits_$datacut, clear 
 unique subject_number druggrp visitdate 
 corcf * using "$pdata\\2_2_allinits_$pdatacut", id(subject_number druggrp visitdate)
+/*
+rename base_prev_drug feb25_base_prev_drug 
 
-rename base_prev_drug jan25_base_prev_drug 
-
-rename base_prev_reason_1 jan25_base_prev_reason1 
+rename base_prev_reason_1 feb25_base_prev_reason1 
 merge 1:1 subject_number druggrp visitdate using "$pdata\\2_2_allinits_$pdatacut", keepus(base_prev_drug base_prev_reason_1)
-br subject_number druggrp visitdate visit_indexn visit_indexN init_date *base_prev_drug if _m==3  & base_prev_drug!=jan25_base_prev_drug
+br subject_number druggrp visitdate visit_indexn visit_indexN init_date *base_prev_drug if _m==3  & base_prev_drug!=feb25_base_prev_drug
 
-groups jan25_base_prev_reason1 base_prev_reason_1 if _m==3, missing ab(16)
+groups feb25_base_prev_reason1 base_prev_reason_1 if _m==3 & feb25_base_prev_reason1!=base_prev_reason_1, missing ab(16)
 
 // check drugexpdetails change 
 
 use 2_1_drugexpdetails_$datacut, clear 
+*for any 000863436 001010119: list subject_number visitdate visit_indexn drug_key drug_date drug_plan drug_status drug_start drug_start_date drug_stop drug_stop_date if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
 use "$pdata\\2_1_drugexpdetails_$pdatacut", clear
 // 1st humira had hx of enbrel now bionaive; 2nd cimzia had hx of enbrel now orencia ==> overlapped start-stop dates, cannot tell which one is the first 
-for any 000863436 001010119: list subject_number visitdate visit_indexn drug_key drug_date drug_plan drug_status drug_start drug_start_date drug_stop drug_stop_date if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)
+for any 000863436 001010119: list subject_number visitdate visit_indexn drug_key drug_date drug_plan drug_status drug_start drug_start_date drug_stop drug_stop_date if subject_number=="X" & inlist(drug_category, 250,390), noobs ab(16) sepby(drug_key)*/

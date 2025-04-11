@@ -34,8 +34,10 @@ tdy <- glue("{tdy_year}-{tdy_month}-{tdy_day}")
 
 # setwd("C:/Users/lguo/Documents/R-learning/data_dictionary")
 sharepoint <- "~/../../Corrona LLC/"
-# shared_data  <- glue("{sharepoint}Biostat Data Files - RA/monthly/")
-# testthat::expect_true(dir.exists(shared_data),  label = "shared_data directory must exist")
+
+# 2025-04-04 LG put all RDS data into DQ checks folder instead of clean_table folder
+DQ_data  <- glue("{sharepoint}Biostat Data Files - RA/DQ checks/data/{tdy_year}/{tdy_year}-{tdy_month}-01")
+testthat::expect_true(dir.exists(DQ_data),  label = "DQ data directory must exist")
 
 clean_table  <- glue("{sharepoint}Biostat Data Files - RA/monthly/{tdy_year}/{tdy_year}-{tdy_month}-01/clean_table")
 testthat::expect_true(dir.exists(clean_table),  label = "clean_table directory must exist")
@@ -46,8 +48,8 @@ testthat::expect_true(dir.exists(analytic_data),  label = "analytic_data directo
 bv_raw  <- glue("{sharepoint}Biostat Data Files - RA/monthly/{tdy_year}/{tdy_year}-{tdy_month}-01/bv_raw")
 testthat::expect_true(dir.exists(bv_raw),  label = "raw data directory must exist")
 
-dq_data  <- glue("{sharepoint}Biostat Data Files - RA/DQ checks/Data/{tdy_year}/{tdy_year}-{tdy_month}-01")
-testthat::expect_true(dir.exists(dq_data),  label = "dq_data directory must exist")
+# dq_data  <- glue("{sharepoint}Biostat Data Files - RA/DQ checks/Data/{tdy_year}/{tdy_year}-{tdy_month}-01")
+# testthat::expect_true(dir.exists(dq_data),  label = "dq_data directory must exist")
 
 
 # Get a list of all .dta files in the directory
@@ -62,7 +64,7 @@ for (file in file_list) {
   data <- read_dta(file)
   
   # Save each dataset as an RDS file
-  saveRDS(data, file = file.path(clean_table, paste0(file_name, ".rds")))
+  saveRDS(data, file = file.path(DQ_data, paste0(file_name, ".rds")))
 }
 
 # Now each dataset is saved as an individual .rds file in the specified save directory
@@ -70,6 +72,7 @@ for (file in file_list) {
 # 2024-10-28 also save the 2.X data into clean_table folder to test data dictionary
 # put RDS data into DQ folder
 # Get a list of all .dta files in the directory
+# 2025-02-07 save all analytic data into clean_table folder, create data dictionary together.
 file_list <- list.files(analytic_data, pattern = "\\.dta$", full.names = TRUE)
 # Loop over each file: import, then save as .RDS
 for (file in file_list) {
@@ -80,7 +83,7 @@ for (file in file_list) {
   data <- read_dta(file)
   
   # Save each dataset as an RDS file
-  saveRDS(data, file = file.path(dq_data, paste0(file_name, ".rds")))
+  saveRDS(data, file = file.path(DQ_data, paste0(file_name, ".rds")))
 }
 # 2024-11-05: column K has quotation marks, deleted and renamed as _simple 
 # Raw spec staging data
@@ -104,11 +107,14 @@ specs_condensed <- read_excel(glue("{bv_raw}/specs_view_definitions.xlsx")) %>%
 # analytic_data <- "C:/Users/lguo/Documents/R-learning/data_dictionary"
 
 # 2024-11-05 LG: use the R data in DQ initiative folder 
-ds_list <- tools::file_path_sans_ext(list.files(dq_data, pattern = "\\.rds$"))
+# 2025-04-04 LG: changed to DQ data folder
+ds_list <- tools::file_path_sans_ext(list.files(DQ_data, pattern = "\\.rds$"))
 
 # Create base codebook/data dictionary from labelled ----
+# 2025-01-16 change from observed range to expected range (leave as an empty column)
+# details changed from "full" to "none"
 cb_dd_list <- ds_list %>% 
-  map(~labelled::look_for(readRDS(glue("{dq_data}/{.x}.rds")), details = "full") %>% 
+  map(~labelled::look_for(readRDS(glue("{DQ_data}/{.x}.rds")), details = "basic") %>% 
         # collapse variable values to one row
         convert_list_columns_to_character()) %>% 
   set_names(ds_list) 
@@ -154,11 +160,11 @@ dd_func <- function(df) {
   
   # subset to correct dataset in list
   dd <- as.data.frame(cb_dd_list[[df]]) %>%
-    mutate(
-      range = ifelse((col_type == "chr" | value_labels != ""), "", range),
-    ) %>%
-    select(variable:col_type, value = value_labels, range) %>%
-    left_join(., specs_condensed %>%
+    # mutate(
+    #   range = ifelse((col_type == "chr" | value_labels != ""), "", range),
+    # ) %>%
+    select(variable:col_type, value = value_labels) %>% #, range
+        left_join(., specs_condensed %>%
                 # duplicate rows coming through since variable can exist on more than one form
                 # e.g., visitdate on MDFU, MDEN
                 distinct(specs_column_name,
@@ -177,23 +183,24 @@ dd_func <- function(df) {
            `Question text` = description,
            `Analytic Variable label` = label, 
            `Analytic Variable values` = value, 
-           `Analytic Range expected`,
-           `Analytic Range observed` = range, 
+           `Analytic Range expected` ,
+           #`Analytic Range observed` = range, 
            `Analytic format` = col_type,
            `Analytic Measurement unit`,
            `Analytic validation`,
            `Important notes`) 
   
   # Add in expected ranges for calculated variables==> LG: not applicable to RA
-  # dd <- dd %>%
-  #   mutate(
-  #     `Analytic Range expected` = case_when(
-  #       `Analytic File Variable name` == "mayo_index_part"         ~ "range: 0-9",
-  #       `Analytic File Variable name` == "SCCAI"                   ~ "range: 0-19",
-  #       
-  #       
-  #       TRUE ~ NA_character_)
-  #   )  
+  # 2025-02-07 LG testing adding expected range into data dictionary==>worked, will add more
+  dd <- dd %>%
+    mutate(
+      `Analytic Range expected` = case_when(
+        `Analytic File Variable name` == "cdai"         ~ "[0,76]",
+        `Analytic File Variable name` == "di"           ~ "[0,3]",
+
+
+        TRUE ~ NA_character_)
+    )
   
   # add file to workbook
   openxlsx::writeDataTable(wb_dd, df, x = dd)
@@ -204,7 +211,8 @@ data_dictionaries <- ds_list %>%
   map(~dd_func(.x)) %>% 
   set_names(ds_list)
 # Save ----
-openxlsx::saveWorkbook(wb_dd, glue("{analytic_data}/RA_datadictionary_{tdy_year}-{tdy_month}-01.xlsx"), overwrite = TRUE)
+# 2025-01-16 save file name as analytic data dictionary. Will test clean_data dictionary later.
+openxlsx::saveWorkbook(wb_dd, glue("{analytic_data}/RA_analyticdatadictionary_{tdy_year}-{tdy_month}-01.xlsx"), overwrite = TRUE)
 # Time to Run
 end_time <- Sys.time()
 total_time <- end_time - start_time

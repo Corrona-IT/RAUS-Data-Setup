@@ -26,7 +26,7 @@ library(tidyverse)
 #-------------
 tdy_date <- Sys.Date()
 # cut date to use while BVs are still in odbc
-cut_date    <- as.Date("2025-01-01")
+cut_date    <- as.Date("2025-04-01")
 
 # cut_date <- floor_date(Sys.Date(), "month")-1
 # test cut_date var
@@ -64,8 +64,9 @@ exit_clean <- haven::read_dta(glue("{bv_raw}/bv_exits.dta")) %>%
   mutate(c_effective_event_date = as.Date(c_effective_event_date, format = "%Y-%m-%d")) %>% 
   select(
     -c(# dw_event_instance_uid, # this var can be used to link subs/visits between different data sets
-       dw_site_uid,
-       dw_subject_uid#, 
+      # 2025-02-04 changed variable names  
+      c_site_key,
+      c_subject_key, 
        # x_edc_event_instance_uid,
        # dw_event_type_acronym
     )) %>% 
@@ -214,7 +215,7 @@ exit_clean <- haven::read_dta(glue("{bv_raw}/bv_exits.dta")) %>%
 
 
 
-
+# 2025-04-02 LG removed 2 c_is variables from the list, not available
 exit_labelled <- exit_clean %>% 
   # remove the char vars & intermediary bv vars
   select(-c(exit_reason, 
@@ -231,17 +232,15 @@ exit_labelled <- exit_clean %>%
             exit_certain,
             c_is_suppressed_exit,
             c_is_redundant_enrollment,
-            c_is_redundant_followup,
-            c_is_enrollment_out_of_order,
+            # c_is_redundant_followup,
+            # c_is_enrollment_out_of_order,
             # study_uid,
-            parent_study_acronym,
+            parent_study_acronym #,
             # parent_study_uid,
             # confirm_data_entry,
             # confirm_data_entry_code,
             # dw_event_instance_uid
-            c_dw_event_instance_key
-            
-  )) %>%
+            )) %>%
   rename(exit_reason            = exit_reason_code,
          death_drug             = death_drug_code,
          diagnosis_death        = diagnosis_death_code,
@@ -320,12 +319,16 @@ exit_labelled <- exit_clean %>%
     )
   )  %>% 
   # order vars
-  select(dw_event_instance_uid,
+  # 2025-02-04 changed variable name and do not include c_dw_event_instance_key
+  # 2025-03-05 LG adding created/modified date to further clean exit_form_dt
+  select(c_dw_event_instance_key,
          # parent_study, 
          # study_acronym, 
          subject_number, 
          site_number,
          exit_form_dt,
+         c_event_created_date, 
+         c_event_last_modified_date,
          dw_event_type_acronym,
          full_version,
          # study_source_acronym,
@@ -398,7 +401,7 @@ exit_labelled_deduped <- exit_labelled %>%
     exit_reason                     = "Reason for discontinuation",
     oth_exit_reason_spec            = "Other reason for exit",
     last_contact_dt                 = "Date of last contact with subject",
-    dw_event_instance_uid           = "Event instance UID",
+    c_dw_event_instance_key         = "Event instance UID",
     exit_site_withdrew              = "Subject exited by CorEvitas after site withdrew from registry"
     
   ) %>% 

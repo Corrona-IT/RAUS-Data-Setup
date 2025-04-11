@@ -20,7 +20,12 @@ global cleantable "~\Corrona LLC\Biostat Data Files - Registry Data\RA\Data Ware
 
 cd "~\Corrona LLC\Biostat Data Files - Registry Data\RA\monthly\Transition\analysis\allvisits" 
 
-*******************************************************************/ 
+2025-01-25 LG update 
+1. fixed typo from lab var to lab val for the lab values of subnodever 
+
+2025-02-28 Ying updated
+use imp_onset_date from allinf and allcomor since already updated in each setup 
+*/ 
 
 **************************************************************************
 
@@ -30,7 +35,9 @@ use clean_table\1_3_conmeds_$datacut, clear
 
 drop if conmed_status=="past" | conmed_status=="unknown" | conmed_status=="stop" 
 destring full_version site_number, replace 
-drop if site_number>=998 
+
+// 2025-04-04 changed from 998 to 997
+drop if site_number>=997 
 
 keep  if strpos(conmed_section, "NSAID") | strpos(conmed_section, "analgesics") 
 
@@ -68,31 +75,12 @@ save temp\temp_nsaids, replace
 * history of comorbidities, reshape to wide 
 
 use clean_table\1_7_allcomor_$datacut, clear 
+ 
+unique subject_number visitdate comor_type imp_onset_date comor_type_txt if comorkey!="fracture" & strpos(comorkey, "oth")==0 
 
-* edit onset date 
-foreach x in month day {
-	gen `x'=onset_`x' 
-	replace `x'="01" if (onset_`x'=="xx" | onset_year!="" & onset_`x'=="")  
-}  
-
-egen date=concat(onset_year  month day), p(-)  
-
-gen onsetdate=date(date, "YMD") 
-format onsetdate %tdCCYY-NN-DD  
-drop date month day 
-
-* Rule: if missing onset date at enrollment using enrollment date-1 day 
-replace onsetdate=visitdate if dw_event_type_acronym!="EN" & onsetdate==. 
-replace onsetdate=visitdate-1 if dw_event_type_acronym=="EN" & onsetdate==. 
-
-* Rule: if onset date yyyymm same as visitdate missing report onset days, using visitdate day on follow up visit 
-replace onsetdate=visitdate if onset_day=="xx" & mofd(visitdate)==mofd(onsetdate) & dw_event_type_acronym!="EN" 
-
-unique subject_number visitdate comor_type onsetdate comor_type_txt if comorkey!="fracture" & strpos(comorkey, "oth")==0 
-
-sort subject_number visitdate comorkey onsetdate comor_type comor_type_txt location 
-by subject_number visitdate comorkey onsetdate: gen vn=_n if comorkey!="fracture" & strpos(comorkey, "oth")==0 
-by subject_number visitdate comorkey onsetdate: gen vN=_N if comorkey!="fracture" & strpos(comorkey, "oth")==0  
+sort subject_number visitdate comorkey imp_onset_date comor_type comor_type_txt location 
+by subject_number visitdate comorkey imp_onset_date: gen vn=_n if comorkey!="fracture" & strpos(comorkey, "oth")==0 
+by subject_number visitdate comorkey imp_onset_date: gen vN=_N if comorkey!="fracture" & strpos(comorkey, "oth")==0  
 tab vN if vn==1 
 
 tab comor_type vn if vN==2 & comorkey=="ulcer" 
@@ -101,13 +89,12 @@ tab comor_type vn if vN==2 & comorkey=="ulcer"
 drop if comor_type=="bleeding ulcer" & vN==2 & comorkey=="ulcer" 
 drop vn vN
 
-
 * duplicate comors not fracture or other 
-sort subject_number visitdate comorkey onsetdate comor_type comor_type_txt location 
-by subject_number visitdate comorkey onsetdate: gen vn=_n if comorkey!="fracture" & strpos(comorkey, "oth")==0 
-by subject_number visitdate comorkey onsetdate: gen vN=_N if comorkey!="fracture" & strpos(comorkey, "oth")==0  
+sort subject_number visitdate comorkey imp_onset_date comor_type comor_type_txt location 
+by subject_number visitdate comorkey imp_onset_date: gen vn=_n if comorkey!="fracture" & strpos(comorkey, "oth")==0 
+by subject_number visitdate comorkey imp_onset_date: gen vN=_N if comorkey!="fracture" & strpos(comorkey, "oth")==0  
 tab vN if vn==1 
-*br subject_number visitdate comorkey comor_type onsetdate  vn if vN==2 
+*br subject_number visitdate comorkey comor_type imp_onset_date  vn if vN==2 
 drop if vn==2  
 
 drop vn vN 
@@ -125,13 +112,13 @@ foreach x in bladder pancreatic thyroid ovarian pancreatic renal brain kidney re
 replace comorkey="oth_cancer" if comorkey=="oth_cond" & comortxt=="cancer" 
 drop comortxt 
 
-unique subject_number visitdate comorkey onsetdate comor_type comor_type_txt location 
+unique subject_number visitdate comorkey imp_onset_date comor_type comor_type_txt location 
 
-sort subject_number comorkey onsetdate 
-by subject_number comorkey: gen fstdt=onsetdate[1] 
+sort subject_number comorkey imp_onset_date 
+by subject_number comorkey: gen fstdt=imp_onset_date[1] 
 format fstdt %tdCCYY-NN-DD 
 
-sort subject_number visitdate comorkey onsetdate 
+sort subject_number visitdate comorkey imp_onset_date 
 
 save temp\temp_allcomor, replace  
 
@@ -139,7 +126,8 @@ save temp\temp_allcomor, replace
 use temp\temp_allcomor, clear 
 
 *link to allvisit
-keep subject_number visitdate dw_event_type_acronym dw_event_instance_uid
+// 2025-02-06 changed var name dw_event_instance_uid
+keep subject_number visitdate dw_event_type_acronym c_dw_event_instance_key
 bysort subject_number visitdate: drop if _n>1 
 save temp\temp_comorvisit, replace 
 
@@ -188,18 +176,18 @@ erase temp\temp_comorvisit.dta
 erase temp\temp_allcomor.dta 
 
 
-*keep subject_number visitdate comorkey comor_type location onsetdate full_version site_number dw_event_type_acronym serious targeted 
+*keep subject_number visitdate comorkey comor_type location imp_onset_date full_version site_number dw_event_type_acronym serious targeted 
 
 use temp\1_7_allcomor_linked, clear 
 
 * reshape to wide format for history of comorbidities 
 
-sort subject_number visitdate comorkey onsetdate 
+sort subject_number visitdate comorkey imp_onset_date 
 by subject_number visitdate comorkey: drop if _n>1  // only keep first comor onset at same visit date 
-by subject_number visitdate comorkey: drop if _n==_N & onsetdate>visitdate // drop if TAEs reported after last subject visit 
+by subject_number visitdate comorkey: drop if _n==_N & imp_onset_date>visitdate // drop if TAEs reported after last subject visit 
 
-sort subject_number comorkey onsetdate visitdate 
-by subject_number comorkey: gen fstdt_= onsetdate[1] if comorkey==comorkey[1] 
+sort subject_number comorkey imp_onset_date visitdate 
+by subject_number comorkey: gen fstdt_= imp_onset_date[1] if comorkey==comorkey[1] 
 
 keep subject_number visitdate comorkey fstdt_ 
 encode comor, gen(comor_)  
@@ -228,9 +216,11 @@ save temp\temp_comor, replace
 ********************************************************************
 
 * created history of serious infection (hosp/iv) since version 7 
-
+// 2025-03-05 LG uncommented #218 and commented #221 for 2025-02-28 code 
 use "clean_table\1_8_allinf_$datacut", clear 
-drop if visitdate==. 
+*Ying 2025-02-21 revise 
+
+*use temp\allinf_clean, clear 
 
 destring full_version site_number, replace 
 
@@ -238,36 +228,20 @@ gen inf_serious=1 if (serious=="yes" | iv_antiinfectives=="yes" )  // hosp/iv in
 
 keep if inf_serious==1 
 
-for any month day: gen X=onset_X 
-for any month day:	replace X="01" if X=="xx" 
-egen date=concat(onset_year month day), p(-) 
-gen onsetdate=date(date, "YMD") 
-format onsetdate %tdCCYY-NN-DD 
-
-* if onset date yyyymm same as visitdate missing report onset days, using visitdate day on follow up visit 
-replace onsetdate=visitdate if onset_day=="xx" & mofd(visitdate)==mofd(onsetdate) & dw_event_type_acronym!="EN" 
-
-drop date onset_year onset_month onset_day month day  
-
-* if missing onset_date, use visitdate-1 
-
-replace onsetdate=visitdate-1 if onsetdate==. & dw_event_type_acronym=="EN" 
-replace onsetdate=visitdate if onsetdate==. & dw_event_type_acronym!="EN" 
-
 * keep first onset date for serious infection  
-sort subject_number inf_serious onsetdate visitdate
-by subject_number inf_serious: gen fstdt_inf_serious=onsetdate[1] 
+sort subject_number inf_serious imp_onset_date visitdate
+by subject_number inf_serious: gen fstdt_inf_serious=imp_onset_date[1] 
 assert fstdt_inf_serious<. 
  
 * keep first event row for each visitdate 
-sort subject_number visitdate onsetdate dw_event_type_acronym  
+sort subject_number visitdate imp_onset_date dw_event_type_acronym  
 by subject_number visitdate: keep if _n==1 
 
 drop if site_number>=998 
 
-keep subject_number visitdate full_version dw_event_type_acronym study_acronym source_acronym site_number inf_serious onsetdate fstdt_inf_serious   
-rename onsetdate inf_serious_dt 
-save temp\temp_inf, replace 
+keep subject_number visitdate full_version dw_event_type_acronym study_acronym source_acronym site_number inf_serious imp_onset_date fstdt_inf_serious   
+rename imp_onset_date inf_serious_dt 
+save temp\temp_inf2, replace 
 
 /****************************************************
 * history of drug 
@@ -312,6 +286,8 @@ foreach x in radrug conmed lab imaging comor infection {
 sort subject_number visitdate 
 merge 1:1 subject_number visitdate using temp\temp_comor 
 rename _m taecomor 
+
+ds x_surgeries_*, v(32) 
 
 *tab dw_event_type_acronym if _m==2 
 
@@ -370,7 +346,7 @@ foreach x in psoriasis {
 replace hx_comor_`x'=. if full_version<6
 replace comor_`x'=. if full_version<6
 } 
-
+ 
 gen hx_comor_cvd=0
 foreach x in revasc ven_arrhythm card_arrest mi acs unstab_ang chf stroke tia other_cv pef_art_dis oth_clot carotid cor_art_dis pulm_emb {
 replace hx_comor_cvd=1 if hx_comor_`x'==1
@@ -394,9 +370,9 @@ lab val hx_comor_cancer_all ny
 
 
 * merge with allinf serious infection (hosp/iv) 
-
+// 2025-03-05 LG changed 371 to temp_inf2
 sort subject_number visitdate 
-merge 1:1 subject_number visitdate using temp\temp_inf  
+merge 1:1 subject_number visitdate using temp\temp_inf2  
 
 * carry forward history of serious infection  
 
@@ -425,8 +401,8 @@ assert _m!=2
   |-----------------------------|
   |      254010199   2024-12-02 |==> 2024-12-05 out of range 
   +-----------------------------+
-*/
-drop if _m==2
+
+drop if _m==2*/
 drop _m 
 
 for any nsaiduse opioid analgesics: replace X=0 if X==. 
@@ -457,8 +433,27 @@ by subject_number: gen ck=1 if visitdate>death_dt & visitdate>exit_form_date
 list site_number status subject_number visitdate exit_form_date exit_reason death_dt if ck==1, noobs ab(20) 
 *drop if ck==1 
 drop ck 
+for any 002021166 002022891 002032350 006040078 015001227 160010207: list subject_number visitdate exit_form_date exit_reason death_dt if subject_number=="X", noobs ab(16) sepby(subject_number)
+count if visitdate>death_dt & visitdate>exit_form_date // 6
 
-/* one subject had visits after death but we can't confirm from site because site closed, keep visits for now 
+// 2025-04-10 LG dropping 6 visits from the 6 subjects because their visitdate is later than both exit_form_date and death_dt; checked, the 6 visits are all the last visits for the subjects. 
+drop if visitdate>death_dt & visitdate>exit_form_date
+
+/*
+2025-04-10 updated exit form date 
+  +-----------------------------------------------------------------------------------------------------------+
+  | site_number              status   subject_number    visitdate   exit_form_date   exit_reason     death_dt |
+  |-----------------------------------------------------------------------------------------------------------|
+  |           2   Approved / Active        002021166   2020-04-01       2020-03-26         death   2016-04-20 |
+  |           2   Approved / Active        002022891   2020-08-20       2020-04-23         death   2018-11-08 |
+  |           2   Approved / Active        002032350   2024-04-09       2024-03-08         death   2024-03-01 |
+  |           6   Approved / Active        006040078   2021-12-21       2021-03-02         death   2021-03-02 |
+  |          15   Approved / Active        015001227   2022-05-02       2021-03-04         death   2021-02-24 |
+  |-----------------------------------------------------------------------------------------------------------|
+  |         160   Approved / Active        160010207   2024-10-24       2022-02-10         death   2020-12-30 |
+  +-----------------------------------------------------------------------------------------------------------+
+
+ one subject had visits after death but we can't confirm from site because site closed, keep visits for now 
   +------------------------------------------------------------------------------------------------------------+
   | site_number               status   subject_number    visitdate   exit_form_date   exit_reason     death_dt |
   |------------------------------------------------------------------------------------------------------------|
@@ -780,7 +775,7 @@ by subject_number: gen cumsubcnm=sum(subcnm)
 by subject_number: gen subnodever=sum(subcutan_nods)
 replace subnodever=1 if subnodever>1 & subnodever<.
 replace subnodever=. if subnodever==0 & subcutan_nods==. & cumsubcnm==0 
-lab var subnodever ny
+lab val subnodever ny
 lab var subnodever "Subcutaneous nodules ever" 
 drop subcnm cumsubcnm 
 
@@ -946,13 +941,14 @@ sum eq5d, d // 287k+ out of 481k+
 
 * may drop below variables from keyvisitvars, they are in 1_2_allvisits. 
 
-cap drop  c_effective_event_date c_is_* smoke_oth* ae_comor_tox_fract ae_comor_tox_fract_since hx_bio_en no_bio_sm* fracture_* infections_*  med_condition_* su_meds_* md_meds_* osteo_meds_* surgeries_* surgeries_* tb_ever tb_since tb_blood_* vaccine_* x_* emergency rheum_visits outpt_* surgeries_* lab_rad_dxa_submit labs_imaging_coll 
+cap drop  c_effective_event_date c_is_* smoke_oth* ae_comor_tox_fract ae_comor_tox_fract_since hx_bio_en no_bio_sm* fracture_* infections_*  med_condition_* su_meds_* md_meds_* osteo_meds_*  tb_ever tb_since tb_blood_* vaccine_* x_* emergency rheum_visits outpt_* lab_rad_dxa_submit labs_imaging_coll 
 
 cap drop drinks_status drink_n_perday drink_times drink_times_dwm drink_none drink_days_3 drinking_etoh drink_days_3_wmy smoke_ever_100 smoke_start_age smoke_current smoke_perday smoke_n_perday smoke_regular smoke_last_age smoke_lifetime_year smoke_lifetime_month smoke_start smoke_quit smoking_cigs 
 
 cap drop doi_not_started_1 doi_not_started_2 doi_reason_1 doi_reason_2 doi_reason_oth_spec_1 doi_reason_oth_spec_2 doi_route_2 doi_not_started_oth_1 doi_not_started_oth_2 study_other_enrolled cbc_yn cbc_yn_code chest_xray_yn dxa_yn dxa_yn_code hep_b_panel_yn hep_b_panel_yn_code inflammatory_yn inflammatory_yn_code joint_mri_yn joint_mri_yn_code joint_ultrasound_yn_code joint_xray_yn kidney_function_yn kidney_function_yn_code lipid_panel_yn lipid_panel_yn_code liver_function_yn liver_function_yn_code ra_diag_results_yn ra_diag_results_yn_code vitamin_d_yn vitamin_d_yn_code 
 
-cap drop hispanic race_hispanic race_white race_black race_asian race_native_am race_pacific am_stiff_hrs am_stiff_mins 
+// 2025-02-11 Yolanda asks to keep hispanic hispanic 
+cap drop race_hispanic race_white race_black race_asian race_native_am race_pacific am_stiff_hrs am_stiff_mins 
 cap drop curated_weight curated_bmi race_other 
 
 *cap drop haq_dress_yourself haq_get_in_out_bed haq_lift_cup_glass haq_walk_outdoors haq_wash_dry_body haq_bend_down_pick_up haq_turn_faucets haq_get_in_out_car haq_climb_5_steps haq_chores
@@ -1010,7 +1006,8 @@ drop site_id ck everck md mdn md_cod
 
 lab var c_event_created_date "Created date"
 lab var c_event_last_modified_date "Last modified date"
-lab var dw_event_instance_uid "Event instance UID"
+// 2025-02-06 changed var name 
+*lab var dw_event_instance_uid "Event instance UID"
 lab var exit_other "Other exit reason, specify"
 lab var death_dt "Date of death"
 lab var status "Site status"
@@ -1108,5 +1105,43 @@ drop inflammatory_yn
  
 order site_number subject_number visitdate md_id full_version dw_event_type_acronym source_acronym study_acronym  
 sort subject_number visitdate 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+// 2025-03-07 fix one subject with wrong birthyear
+*use 2_3_keyvisitvars_2025-03-01, clear 
 
+list subject_number visitdate age birthyear if age<0, noobs ab(16)
+/*
+2025-03-01 cut
+  +----------------------------------------------------+
+  | subject_number    visitdate        age   birthyear |
+  |----------------------------------------------------|
+  |    RA-217-0027   2025-01-14   -8289936     8291961 |
+  +----------------------------------------------------+
+replace birthyear=1961 if subject_number=="RA-217-0027"
+replace age=2025-1961 if subject_number=="RA-217-0027"
+2025-04-01 cut 
+  +----------------------------------------------------+
+  | subject_number    visitdate        age   birthyear |
+  |----------------------------------------------------|
+  |    RA-217-0030   2025-02-04   -8219941     8221966 |
+  +----------------------------------------------------+
+*/
+replace birthyear=1966 if subject_number=="RA-217-0030"
+replace age=2025-1966 if subject_number=="RA-217-0030"
+
+list subject_number visitdate age birthyear if subject_number=="RA-217-0030", noobs ab(16)
+
+lab var lab_img_dt "Date of lab or imaging test"
+lab var height_in_tot "Height in inches"
+lab var weight_lb "Weight (pounds)"
+ds, not(Varlabel) v(32)
+
+lab var surgeries_any_ra_calc  "any RA surgeries"      
+mdesc surgeries_any_ra_count_calc // 2025-04-04 all missing, temporiarily drop it 
+drop surgeries_any_ra_count_calc
+// 2025-04-10 drop extra vars so DQ won't have problem 
+drop edc_event_type_acronym    edc_event_class           edc_event_instance_label  edc_event_ordinal         c_edc_event_ui_label
 save 2_3_keyvisitvars_$datacut, replace 
+
+corcf * using "$pdata\\2_3_keyvisitvars_$pdatacut", id(subject_number visitdate) //verbose noobs 
+

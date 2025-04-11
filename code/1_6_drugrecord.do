@@ -1,4 +1,6 @@
 /*
+2025-02-17 LG found v15 drug_plan of "not applicable / drug not in use" confuses drug setup by adding more re-starts to drugs with complete history reported (1000+) and confuses the drug stop dates. Testing data by eliminating drug_plan of "not applicable / drug not in use" from raw data first and testing the current drug algorithm to see if the listed examples can be fixed. If not, consider modifying the drug algorithm.
+
 
 2024-10-30 added more biosimilars to drug key, fixed errors for some drugtxt extractions
 
@@ -146,6 +148,18 @@ to create 2.1 radrugexpdetail
 *log using temp\1_6_drugrecord_2024-10-30.log, append //replace  
 
 use bv_raw\bv_drugs_of_interest, clear
+
+groups full_version drug_plan, missing ab(16) sepby(full_version) // 2025-02-17 4,519 rows "not in use"
+
+groups drug_plan drug_status, missing ab(16) sepby(drug_plan)
+
+// no drug_name or drug_name_txt provided 
+tab drug_name if drug_status=="continue" & drug_plan=="not applicable / drug not in use", m 
+tab drug_name_txt if drug_status=="continue" & drug_plan=="not applicable / drug not in use", m 
+
+// 2025-02-17 drop all drug plan of "not applicable" from raw data 
+drop if drug_plan=="not applicable / drug not in use" 
+// (4,159 observations deleted)
 
 mdesc *, ab(32)
 
@@ -510,6 +524,8 @@ drop if generic_key=="" // drop other non-RA or other_ra // 3,247 rows dropped
 
 groups drug_category_code generic_key drugkey, missing ab(16) sepby(drug_category_code generic_key)
 
+*save temp\drug_testing_2025-02-17\clean_bv_drugs_of_interest_drugkey, replace
+
 compress 
 save temp\clean_bv_drugs_of_interest_drugkey, replace 
 
@@ -535,8 +551,9 @@ for any 000000010: list subject_number c_effective_event_date drugkey drug_date 
 
 for any 000000010:  replace freq_value=8 if subject_number=="X" & drugkey=="remicade" & (dose_txt=="q 8 wks"|dose_v7=="q 8 wks")
 for any 000000010:  replace freq_unit_code=930 if subject_number=="X" & drugkey=="remicade" & (dose_txt=="q 8 wks"|dose_v7=="q 8 wks")
-
 for any 000000010:  replace dose_value=. if subject_number=="X" & drugkey=="remicade" & dose_value==8
+
+*save temp\drug_testing_2025-02-17\clean_bv_drugs_of_interest_dosefreq, replace 
 
 compress 
 save temp\clean_bv_drugs_of_interest_dosefreq, replace 
@@ -600,7 +617,7 @@ rename date drug_date
 gen drug_year=year(drug_date)
 tab drug_year 
 
-count if drug_year<. & (drug_year <1960|drug_year>2024) // 297
+count if drug_year<. & (drug_year <1960|drug_year>2025) // 297
 count if drug_year<1960 // 115 
 *br subject_number dw_event_type c_effective_event_date c_event_created_date drug_date if drug_year<. & (drug_year <1960|drug_year>2024)
 *br c_event_created_date
@@ -627,6 +644,20 @@ restore
 
 groups drug_plan drug_plan_code, missing ab(16)
 /*
+2025-03-05 without "not applicable"
+  +---------------------------------------------------------------------+
+  |                       drug_plan   drug_plan_code    Freq.   Percent |
+  |---------------------------------------------------------------------|
+  |                                                .   736531     65.56 |
+  | continue drug plan / no changes                5   290640     25.87 |
+  |                     current use                6    14217      1.27 |
+  |        modify dose or frequency                3    16937      1.51 |
+  |                      start drug                1    34704      3.09 |
+  |---------------------------------------------------------------------|
+  |                       stop drug                2    29361      2.61 |
+  |           stop drug temporarily                9     1096      0.10 |
+  +---------------------------------------------------------------------+
+
   +----------------------------------------------------------------------+
   |                        drug_plan   drug_plan_code    Freq.   Percent |
   |----------------------------------------------------------------------|
@@ -655,31 +686,30 @@ codebook drug_plan
 groups drug_plan drug_plan_raw drug_status, missing ab(16) 
 
 /*
-  +------------------------------------------------------------------------------------------------------+
-  |                        drug_plan                      drug_plan_raw   drug_status    Freq.   Percent |
-  |------------------------------------------------------------------------------------------------------|
-  |                       start drug                         start drug         start    33326      3.04 |
-  |                        stop drug                          stop drug          stop    28872      2.64 |
-  |         modify dose or frequency           modify dose or frequency      continue    16147      1.47 |
-  |  continue drug plan / no changes    continue drug plan / no changes      continue   275492     25.16 |
-  |                      current use                        current use      continue    12164      1.11 |
-  |------------------------------------------------------------------------------------------------------|
-  | not applicable / drug not in use   not applicable / drug not in use           n/a     1871      0.17 |
-  |            stop drug temporarily              stop drug temporarily         start      203      0.02 |==>??
-  |            stop drug temporarily              stop drug temporarily          stop      203      0.02 |
-  |                                .                                         continue   253209     23.13 |
-  |                                .                                            start   268457     24.52 |
-  |------------------------------------------------------------------------------------------------------|
-  |                                .                                             stop   108992      9.95 |
-  |                                .                                          unknown    95980      8.77 |
-  +------------------------------------------------------------------------------------------------------+
+  +----------------------------------------------------------------------------------------------------+
+  |                       drug_plan                     drug_plan_raw   drug_status    Freq.   Percent |
+  |----------------------------------------------------------------------------------------------------|
+  |                      start drug                        start drug         start    34950      3.10 |
+  |                       stop drug                         stop drug          stop    29430      2.61 |
+  |        modify dose or frequency          modify dose or frequency      continue    17049      1.51 |
+  | continue drug plan / no changes   continue drug plan / no changes      continue   292523     25.95 |
+  |                     current use                       current use      continue    14324      1.27 |
+  |----------------------------------------------------------------------------------------------------|
+  |           stop drug temporarily             stop drug temporarily         start      573      0.05 |
+  |           stop drug temporarily             stop drug temporarily          stop      573      0.05 |
+  |                               .                                        continue   254475     22.57 |
+  |                               .                                           start   275460     24.43 |
+  |                               .                                            stop   112090      9.94 |
+  |----------------------------------------------------------------------------------------------------|
+  |                               .                                         unknown    95980      8.51 |
+  +----------------------------------------------------------------------------------------------------+
 */
 
 groups study source dw_event_type if drug_plan==9, noobs ab(16) // RCC TAE 
 
 groups study source dw_event_type if drug_plan==9 & drug_status=="start", noobs ab(16) 
 
-groups site_number study source dw_event_type if drug_plan==8, noobs ab(16)  
+*groups site_number study source dw_event_type if drug_plan==8, noobs ab(16)  
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Step B.2.	Updated 4/17/2024, expand a continue row for start date prior to visitdate, with drug date same as the visitdate 
@@ -712,6 +742,16 @@ mdesc drug_date report_date
 // v20231201 closed ticket #520 missing both drug_status and dose_status 
 groups drug_status, missing ab(16)
 /*
+v2025-03-05 no "n/a" for drug status anymore 
+  +-----------------------------------------+
+  | drug_status    Freq.   Percent      %<= |
+  |-----------------------------------------|
+  |    continue   751586     57.86    57.86 |
+  |       start   309763     23.85    81.71 |
+  |        stop   141620     10.90    92.61 |
+  |     unknown    95980      7.39   100.00 |
+  +-----------------------------------------+
+
   +-----------------------------------------+
   | drug_status    Freq.   Percent      %<= |
   |-----------------------------------------|
@@ -721,12 +761,27 @@ groups drug_status, missing ab(16)
   |        stop   137143     10.87    92.40 |
   |     unknown    95980      7.60   100.00 |
   +-----------------------------------------+
-
 */
 
 groups dose_status, missing ab(16)
 
 /*
+2025-03-05 no "n/a" for dose status either 
+  +---------------------------------------------+
+  |     dose_status    Freq.   Percent      %<= |
+  |---------------------------------------------|
+  | 2nd most recent     4842      0.37     0.37 |
+  |          change    15541      1.20     1.57 |
+  |        continue    24861      1.91     3.48 |
+  |         current    82024      6.31     9.80 |
+  |     most recent     8985      0.69    10.49 |
+  |---------------------------------------------|
+  |            past      129      0.01    10.50 |
+  |           start   486900     37.48    47.98 |
+  |            stop   143294     11.03    59.02 |
+  |         unknown   532373     40.98   100.00 |
+  +---------------------------------------------+
+
   +---------------------------------------------+
   |     dose_status    Freq.   Percent      %<= |
   |---------------------------------------------|
@@ -776,9 +831,12 @@ drop cont drugtxt othra nonra
 
 compress 
 save temp\clean_bv_drugs_of_interest_temp, replace 
-*save temp\clean_bv_drugs_of_interest_temp_2024-10-30, replace 
 
+*save temp\clean_bv_drugs_of_interest_temp_2024-10-30, replace 
+*save temp\drug_testing_2025-02-17\clean_bv_drugs_of_interest_temp, replace
+*cap erase temp\drug_testing_2025-02-17\clean_bv_drugs_of_interest_drugkey.dta
 *use clean_bv_drugs_of_interest_temp, clear 
+
 mdesc study_acronym source dw_event_type, ab(24)
 
 cap erase temp\clean_bv_drugs_of_interest_drugkey.dta
@@ -855,7 +913,21 @@ save temp\allvisits_link_visit, replace
 
 use temp\clean_bv_drugs_of_interest_temp, clear 
 
+// 2025-03-05 clean report_date 
+codebook report_date 
+count if report_date>d($cutdate) // 199
 
+gen created_date=dofc(c_event_created_date)
+format created_date %tdCCYY-NN-DD
+replace report_date=created_date if report_date>15+d($cutdate)
+list subject_number report_date c_effective_event_date c_event_created_date c_event_last_modified_date if report_date>d($cutdate), noobs ab(16)
+count if report_date>d($cutdate)
+drop if report_date>d($cutdate)
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
+
+*use temp\drug_testing_2025-02-17\clean_bv_drugs_of_interest_temp, clear 
 // 2023-11-15, for typo of drug date, eg. 1020004 actemra 01aug2023 vs. visitdate 18aug2020, correct 
 gen dif_date=drug_date-report_date 
 sum dif_date 
@@ -869,7 +941,14 @@ sum dif_date
 cap drop drug_year 
 gen drug_year=substr(drug_date_raw, 1,4)
 
+tab drug_year 
+replace drug_year="" if drug_year=="UNKN"
+/*
+2025-04-03
+       UNKN |         13        0.00      100.00
+*/
 destring drug_year, replace 
+
 sum drug_year 
 /*
     Variable |        Obs        Mean    Std. Dev.       Min        Max
@@ -883,7 +962,7 @@ sum report_year
 mdesc dif_date
 
 tab report_year 
-sum dif_date if drug_year<=2024, d
+sum dif_date if drug_year<=2025, d
 count if dif_date>0 
 
 // v20241202: 3,094;v20240801: n=2,767; v20240701z: n=2,720; v20240601: n=2,654; v20240501: n=2,599; v20240331 n=2,563; 2,512 v20240305 1573, count again after all cleaning 
@@ -909,7 +988,7 @@ tab drug_plan  if dif_date>365 & drug_year>2024,m
                            Total |        182      100.00
 */
 
-count if dif_date>183 & drug_year<=2024
+count if dif_date>183 & drug_year<=2025
  
 // v20241202: 371; v20240801: n=352; v20240701z: n=349; v20240601:n=342; 339; 338; 336;199; 203
 
@@ -939,10 +1018,6 @@ v20240701:
     Variable |        Obs        Mean    Std. Dev.       Min        Max
 -------------+---------------------------------------------------------
     dif_date |  1,269,281   -400.2391    1127.866     -19221        183
-
-    Variable |        Obs        Mean    Std. Dev.       Min        Max
--------------+---------------------------------------------------------
-    dif_date |  1,059,505   -455.7811    1474.617    -693981        183
 */
 
 /* list >6 month difference and later than the next visitdate
@@ -956,9 +1031,9 @@ for any 001020004: list study_source dw_event_type subject_number report_date dr
 
 clonevar visitdate=drug_date
 codebook visitdate 
-
-list subject_number visitdate drug_date if visitdate==d(30dec2024), noobs ab(16)
 /*
+list subject_number visitdate drug_date if visitdate==d(30dec2024), noobs ab(16)
+
   +------------------------------------------+
   | subject_number    visitdate    drug_date |
   |------------------------------------------|
@@ -1001,25 +1076,15 @@ sort subject_number visitdate
 merge m:1 subject_number visitdate using temp\allvisits_link_visit, keepus(linked_visit) 
 
 /*
-v20250113 
     Result                           # of obs.
     -----------------------------------------
-    not matched                       454,677
-        from master                   422,287  (_merge==1)
-        from using                     32,390  (_merge==2)
+    not matched                       459,196
+        from master                   426,395  (_merge==1)
+        from using                     32,801  (_merge==2)
 
-    matched                           872,793  (_merge==3)
+    matched                           875,715  (_merge==3)
     -----------------------------------------
 
-v20240801 
-    Result                           # of obs.
-    -----------------------------------------
-    not matched                       445,538
-        from master                   413,955  (_merge==1)
-        from using                     31,583  (_merge==2)
-
-    matched                           858,712  (_merge==3)
-    -----------------------------------------
 */
 
 gsort subject_number -visitdate 
@@ -1334,7 +1399,7 @@ tab dup_drug4_order // v20241202: 409; 273
 
 save temp\1_6_temp, replace 
 
-
+*save temp\drug_testing_2025-02-17\1_6_temp, replace 
 /////////////////////////////////////////////////////////////////
 // C4.1 Execution part 2: for dup_drug4==1, merge and update 
 preserve 
@@ -1345,6 +1410,11 @@ restore
 
 // update missing field if later version have missing values 
 drop if dup_drug4_order==1
+unique subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code
+duplicates list subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code
+
+duplicates drop subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code, force 
+
 merge 1:1 subject_number report_date drugkey drug_date drug_plan dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code reason_1_category_code reason_1_category reason_2_category reason_2_category_code reason_3_category reason_3_category_code using temp\step4_for_update, update
 
 drop _m 
@@ -1394,6 +1464,7 @@ unique subject_number report_date drugkey drug_date drug_plan drug_status dose_s
 
 save temp\1_6_temp2, replace 
 
+*save temp\drug_testing_2025-02-17\1_6_temp2, replace 
 *use 1_6_temp2, clear
 
 preserve 
@@ -1647,7 +1718,8 @@ lab var full_version "form version"
 lab var study "study (RA or CERTAIN)"
 lab var source_acronym	"source (preTM, TM, or RCC)"
 lab var c_provider_id "provider ID"
-lab var dw_event_instance_uid		"event instance UID"
+// 2025-02-05 var name change 
+lab var c_dw_event_instance_key		"event instance UID"
 lab var c_event_created_date	"created date"
 lab var c_event_last_modified_date	"last modified date"
 
@@ -1664,10 +1736,80 @@ lab var c_event_last_modified_date	"last modified date"
 codebook linked_visit drug_date
 
 compress 
+
+*save temp\drug_testing_2025-02-17\1_6_drugrecord_$datacut, replace 
+*corcf * using clean_table\1_6_drugrecord_$datacut, id(subject_number drug_key drug_date drug_plan drug_status dose_status dose_value freq_value reason_1 reason_2 reason_3 reason_1_code reason_2_code reason_3_code)
+// 2025-02-20 try to fix when v15 both start/stop had no drug dates but reported different reason_1, avoid being de-duplicated for 2.1, 
+*use temp\drug_testing_2025-02-17\1_6_drugrecord_$datacut, clear 
+/*
+for any RA-3-0013: list subject_number linked_visit visit_indexn drug_key drug_date drug_date_raw drug_plan drug_status drug_status_raw dose_value freq_value reason_1 reason_2 if subject_number=="X" & inlist(drug_key,"actemra","enbrel"), sepby(drug_key linked_visit) noobs ab(10)
+
+count if full_version==15 & drug_date_raw=="" & drug_status_raw=="start" // 103
+count if full_version==15 & drug_date_raw=="" & drug_status_raw=="stop" // 37, only find where stop were reported and there is a start prior to it 
+count if full_version==15 & drug_date_raw=="" & drug_date==report_date & drug_status_raw=="stop" // 37, only find where stop were reported and there is a start prior to it 
+*/
+sort subject_number report_date drug_key drug_date drug_status
+gen check_stp=. 
+by subject_number report_date drug_key drug_date: replace check_stp=1 if full_version==15 & drug_date_raw=="" & drug_date_raw[_n-1]=="" & drug_status_raw=="stop" & drug_status_raw[_n-1]=="start" & reason_1!="" & reason_1[_n-1]!=""
+tab check_stp // 29
+
+// check other cases. 
+list subject_number drug_key if check_stp==1, noobs clean
+/*
+    subject_n~r    drug_key  
+    RA-100-0135         mtx  
+	
+    RA-257-0022   inflectra  
+    RA-257-0022     orencia  
+    RA-257-0022    remicade  
+    RA-257-0022      rinvoq  
+    RA-257-0022     simponi  
+	
+      RA-3-0012         mtx  
+      RA-3-0012   plaquenil  
+	  
+      RA-3-0013     actemra  
+      RA-3-0013      enbrel  
+      RA-3-0013      humira  
+      RA-3-0013     orencia  
+      RA-3-0013      rinvoq  
+      RA-3-0013     xeljanz  
+	  
+      RA-3-0018   plaquenil  
+	  
+      RA-3-0020       arava  
+	  
+      RA-3-0026     actemra  
+      RA-3-0026         mtx  
+      RA-3-0026     orencia  
+      RA-3-0026    remicade  
+      RA-3-0026     simponi  
+      RA-3-0026     xeljanz  
+	  
+      RA-3-0030         mtx  
+*/
+for any RA-3-0013: list subject_number linked_visit visit_indexn drug_key drug_date drug_date_raw drug_plan drug_status drug_status_raw dose_value freq_value reason_1 check_stp if subject_number=="X" & inlist(drug_key,"actemra","enbrel","humira","orencia","rinvoq","xeljanz"), sepby(drug_key linked_visit) noobs ab(10)
+
+for any RA-257-0022: list subject_number linked_visit visit_indexn drug_key drug_date drug_date_raw drug_plan drug_status drug_status_raw dose_value freq_value reason_1 check_stp if subject_number=="X" & inlist(drug_key,"inflectra","orencia","remicade","rinvoq","simponi"), sepby(drug_key linked_visit) noobs ab(10)
+
+
+by subject_number report_date drug_key drug_date: replace drug_date=report_date-1 if full_version==15 & drug_date_raw=="" & drug_date_raw[_n+1]=="" & drug_status_raw[_n+1]=="stop" & drug_status_raw=="start" & reason_1!="" & reason_1[_n+1]!="" & check_stp[_n+1]==1
+
+for any RA-3-0013: list subject_number linked_visit visit_indexn drug_key drug_date drug_date_raw drug_plan drug_status drug_status_raw dose_value freq_value reason_1 reason_2 if subject_number=="X" & inlist(drug_key,"actemra","enbrel","humira","orencia","rinvoq","xeljanz"), sepby(drug_key linked_visit) noobs ab(10)
+
+for any RA-257-0022: list subject_number linked_visit visit_indexn drug_key drug_date drug_date_raw drug_plan drug_status drug_status_raw dose_value freq_value reason_1 reason_2 if subject_number=="X" & inlist(drug_key,"inflectra","orencia","remicade","rinvoq","simponi"), sepby(drug_key linked_visit) noobs ab(10)
+
+cap drop check_stop 
+*save temp\drug_testing_2025-02-17\1_6_drugrecord_$datacut, replace
+// no change for this one with only 1 reason reported. 
+*for any RA-100-0070: list subject_number linked_visit visit_indexn drug_key drug_date drug_date_raw drug_plan drug_status drug_status_raw dose_value freq_value reason_1 if subject_number=="X" & inlist(drug_key,"enbrel"), sepby(drug_key linked_visit) noobs ab(10)
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+*use clean_table\1_6_drugrecord_$datacut, clear
+drop created_date check_stp
 save clean_table\1_6_drugrecord_$datacut, replace 
 
 mdesc drug_name_raw drug_name_code drug_name_txt drug_name
-// drop extra data 
+// drop extra data 1_6_temp2 clean_bv_drugs_of_interest_dose_freq clean_bv_drugs_of_interest_temp 
 
 cap erase temp\1_6_temp.dta
 cap erase temp\1_6_temp2.dta

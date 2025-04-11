@@ -58,7 +58,44 @@ save ..\..\for_update\gender, replace
 *******************************************************/
 
 use "bv_raw\bv_subjects", clear 
+// 2025-04-03 use march exit_form_date to update and replace the April data. 
+/*merge 1:1 subject_number using "$pdata\bv_raw\bv_subjects", keepus(exit_form_date) update replace 
 
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                           203
+        from master                       120  (_merge==1)
+        from using                         83  (_merge==2)
+
+    matched                            62,316
+        not updated                    59,877  (_merge==3)
+        missing updated                 2,376  (_merge==4)
+        nonmissing conflict                63  (_merge==5)
+    -----------------------------------------
+
+
+drop if _m==2
+drop _m  
+*/
+
+#delimit;
+for any 000000005
+000103133
+000123473
+000591000
+001010010
+001010055
+001010182
+001017045
+001020009
+001020022
+002020166: list subject_number exit_form_date if subject_number=="X", noobs ab(16)
+;
+#delimit cr;
+
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
 
 * Rich email on 2024-04-01 updates from sites
 
@@ -80,13 +117,14 @@ replace diagnosis_year="2003" if subject_number=="624645881"
 replace diagnosis_year="1997" if subject_number=="100292904"
 replace diagnosis_year="2014" if subject_number=="100555516"
 replace diagnosis_year="1977" if subject_number=="100616100"
-replace birth_year="1935" if subject_number=="003001455" 
-replace birth_year="1996" if subject_number=="100415414"
+// 2025-03-05 change from birth_year to birthyear 
+replace birthyear="1935" if subject_number=="003001455" 
+replace birthyear="1996" if subject_number=="100415414"
 
 replace diagnosis_year="2014" if subject_number=="100285369"
-replace birth_year="1945" if subject_number=="100285369" 
+replace birthyear="1945" if subject_number=="100285369" 
 
-replace birth_year="1923" if subject_number=="036010633" 
+replace birthyear="1923" if subject_number=="036010633" 
 replace diagnosis_year="2005" if subject_number=="036010633" 
 
 
@@ -96,10 +134,10 @@ drop if most_recent_visit_date=="" & earliest_visit_date=="" & exit_form_date=="
 
 unique subject_number 
 *drop if earliest_site_number=="1440" | earliest_site_number=="999" 
-
-destring birth_year diagnosis_year, replace 
+// 2025-03-05 change from birth_year to birthyear 
+destring birthyear diagnosis_year, replace 
  
-lab var birth_year "Year of birth" 
+lab var birthyear "Year of birth" 
 lab var diagnosis_year "Year of RA diagnosis"
 
 tab sex sex_code, m 
@@ -116,13 +154,44 @@ foreach x in enrollment_date earliest_visit_date most_recent_visit_date exit_for
 	rename dt `x' 
 	format `x' %tdCCYY-NN-DD 
 } 
+// 2025-03-05 check date values 
+codebook enrollment_date earliest_visit_date most_recent_visit_date exit_form_date
+count if enrollment_date>d($cutdate) & enrollment_date<. // 0
+count if earliest_visit_date>d($cutdate) & earliest_visit_date<. // 0
+count if most_recent_visit_date>d($cutdate) & most_recent_visit_date<. // 4
+
+list subject_number enrollment_date if  enrollment_date>d($cutdate) & enrollment_date<., noobs ab(16)
+list subject_number earliest_visit_date if  earliest_visit_date>d($cutdate) & earliest_visit_date<., noobs ab(16)
+list subject_number most_recent_visit_date if most_recent_visit_date>d($cutdate) & most_recent_visit_date<., noobs ab(16)
+/*
+  +-----------------------------------+
+  | subject_number   most_recent_vi~e |
+  |-----------------------------------|
+  |      001020165         2025-12-17 | check longitudinal view: d(01jan2025)
+  |      001020235         2025-12-31 | check d(13jan2025)
+  |      001040564         2025-12-03 | had
+  |      001100690         2025-12-11 | had
+  |      011595202         2025-10-14 | check d(10jan2025)
+  |-----------------------------------|
+  |      205090631         2025-11-26 | had
+  +-----------------------------------+
+*/
+// 2025-03-05 LG only find a few in 1.4 alllabs data; all others will be dropped from subjects data  
+// 2025-04-02 LG updated additional 3 subjects from bv_longitudinal data 
+replace most_recent_visit_date=d(01jan2025) if subject_number=="001020165" & most_recent_visit_date==d(17dec2025)
+replace most_recent_visit_date=d(13jan2025) if subject_number=="001020235" & most_recent_visit_date==d(31dec2025)
+replace most_recent_visit_date=d(10jan2025) if subject_number=="011595202" & most_recent_visit_date==d(14oct2025)
+ 
+replace most_recent_visit_date=d(07jan2025) if subject_number=="001100690" & most_recent_visit_date==d(11dec2025)
+replace most_recent_visit_date=d(07jan2025) if subject_number=="001040564" & most_recent_visit_date==d(03dec2025)
+replace most_recent_visit_date=d(17jan2025) if subject_number=="205090631" & most_recent_visit_date==d(26nov2025)
 
 drop if x_is_test=="1"  // ENG created variable for test subject 
 drop x_is_test 
-
+// 2025-03-05 change from birth_year to birthyear
 * clean and check birth year 
-gen en_age=year(enrollment_date)-birth_year   
-list subject_number en_age birth_year diagnosis_year enrollment_date earliest_site_number most_recent_site_number if en_age>94 & en_age<., noobs ab(25) sep(0) 
+gen en_age=year(enrollment_date)-birthyear   
+list subject_number en_age birthyear diagnosis_year enrollment_date earliest_site_number most_recent_site_number if en_age>94 & en_age<., noobs ab(25) sep(0) 
 
 /*
   +--------------------------------------------------------------------------------------------------------------------------+
@@ -146,17 +215,17 @@ list subject_number en_age birth_year diagnosis_year enrollment_date earliest_si
   +--------------------------------------------------------------------------------------------------------------------------+
 */ 
 * before ROM decided how to fix such birth year, we correct as below 
+// 2025-03-05 change from birth_year to birthyear
+replace birthyear= 1993 if subject_number== "003001455" & birthyear==1193
+replace birthyear= 1940 if subject_number== "022050028" & birthyear==1640
+replace birthyear= 1961 if subject_number== "104010061" & birthyear==1061
+replace birthyear= 1953 if subject_number== "061010735" & birthyear==1853
+replace birthyear= 1953 if subject_number== "061010733" & birthyear==1853
+replace birthyear= 1954 if subject_number== "167010038" & birthyear==1054  
+replace birthyear= 1933 if subject_number== "167010010" & birthyear==33   
 
-replace birth_year= 1993 if subject_number== "003001455" & birth_year==1193
-replace birth_year= 1940 if subject_number== "022050028" & birth_year==1640
-replace birth_year= 1961 if subject_number== "104010061" & birth_year==1061
-replace birth_year= 1953 if subject_number== "061010735" & birth_year==1853
-replace birth_year= 1953 if subject_number== "061010733" & birth_year==1853
-replace birth_year= 1954 if subject_number== "167010038" & birth_year==1054  
-replace birth_year= 1933 if subject_number== "167010010" & birth_year==33   
 
-
-rename birth_year birthyear 
+*rename birth_year birthyear 
 
 replace birthyear=. if year(enrollment_date)-birthyear>130 & enrollment_date<. 
 
@@ -172,10 +241,27 @@ destring most_recent_site_number, gen(site_number)
 
 *keep subject_number birthyear female_male diagnosis_year exit_form_date 
 sort subject_number 
-
-drop is_in_substudy_1 subject_provided_* parent_study_acronym *_uid 
+// 2025-02-05 changed var names related to previous *_uid
+drop is_in_substudy_1 subject_provided_* parent_study_acronym c_subject_key earliest_site_key most_recent_site_key // *_uid 
 
 save temp\bv_subjects_clean, replace 
+
+
+// 2025-02-05 Talked with Ying, confirmed there were missingness in the visitdates in subject data, but we only need the subjects with demographic data. 
+
+mdesc exit_form_date enrollment_date earliest_visit_date most_recent_visit_date, ab(32)
+/*
+    Variable                     |     Missing          Total     Percent Missing
+---------------------------------+--------------------------------------------------------------
+                  exit_form_date |      23,427         61,819          37.90
+                 enrollment_date |       1,079         61,819           1.75
+             earliest_visit_date |         311         61,819           0.50
+          most_recent_visit_date |         774         61,819           1.25
+---------------------------------+--------------------------------------------------------------
+
+*/
+
+codebook exit_form_date enrollment_date earliest_visit_date most_recent_visit_date
 
 *****************************
 /* check age onset
@@ -206,7 +292,20 @@ unique site_number
 replace state="FL" if state=="Fl" 
 *replace state="" if state=="AN" 
 replace state="FL" if site_number==262 & state=="NA" // 2024-10-02 edited by LG
-count if state!=shipping_state
+count if state!=shipping_state // 1
+list site_number account_name state shipping_state if state!=shipping_state, noobs ab(16)
+/*
+  +---------------------------------------------------------------------+
+  | site_number                 account_name   state   shipping_state~e |
+  |---------------------------------------------------------------------|
+  |         269   Texoma Arthritis Clinic PA      IL                 TX |
+  +---------------------------------------------------------------------+
+
+*/
+count if state=="NA" // 1 
+list site_number account_name state shipping_state  if state=="NA", noobs ab(16)
+
+replace state="IL" if site_number==266 & state=="NA" // 2025-04-03 LG googled by name of the clinic 
 
 gen region=. 
 
@@ -306,6 +405,7 @@ keep subject_number death_dt exit_reason exit_other
 sort subject_number  
 save temp\temp_exit, replace 
 
+codebook death_dt
 /*
 *education edit using college_completed in version 4-14, baseview data not mapped -may no need to run since ENG will map college_completed 
 
@@ -344,12 +444,15 @@ save temp\temp_edu, replace
 *************************************************************************************************************************************
 
 use "bv_raw\bv_subject_demographic_data", clear 
+// 2025-03-05 LG: no created/modified date to clean visitdates 
 
 unique subject_number 
 
 *famhx_mi_or_stroke_code  famhx_mother_code  famhx_father_code famhx_alt not in specs_view_definition
+// 2025-02-05 changed var names related to *_uid
+*drop dw_subject_uid  dw_site_uid 
 
-drop dw_subject_uid  dw_site_uid 
+drop c_subject_key c_site_key
 
 lab define ny 0 No 1 Yes, modify  
 
@@ -418,7 +521,7 @@ foreach x in  mother father{
 	lab val famhx_`x' ny 
 } 
 
-lab var famhx_mi_or_stroke "Fimily history of MI/Stroke" 
+lab var famhx_mi_or_stroke "Family history of MI/Stroke" 
 lab var famhx_mother "Mother has MI/Stroke"
 lab var famhx_father "Father has MI/Stroke" 
 
@@ -434,7 +537,7 @@ lab var dw_event_type_acronym  "form type"
 lab var parent_study_acronym  "parent study"
 
 lab var subject_number  "subject id" 
-lab var site_number  " site id" 
+lab var site_number  "site id" 
 lab var c_height_inches  "height (inches)" // "computed height in inches captured at earliest visit"
 
 gen visitdate=date(c_effective_event_date, "YMD") 
@@ -443,6 +546,18 @@ lab var visitdate "visit date"
 
 rename c_height_inches height_in_tot 
 
+// 2025-02-26 round and clean height values
+// if more than 135, treat as cm?
+replace height_in_tot=height_in_tot/2.54 if height_in_tot>135 & height_in_tot<. 
+gen double height_round=round(height_in_tot)
+compare height_in_tot height_round 
+groups height_in_tot height_round if height_in_tot!=height_round, missing ab(16) 
+drop height_in_tot
+rename height_round height_in_tot
+replace height_in_tot=. if height_in_tot<45
+replace height_in_tot=. if height_in_tot>90 & height_in_tot<.
+sum height_in_tot,d
+
 drop x_is_test c_height_inches_alt symptom_year_alt  marital_status_alt race_alt c_education_alt  famhx_alt parent_study_acronym c_is_suppressed_not_seen
 
 unique subject_number 
@@ -450,6 +565,9 @@ sort subject_number
 
 save temp\bv_subject_demo_clean, replace 
 
+// 2025-02-05 check missingness of visitdate for subject_demographic data
+mdesc visitdate 
+codebook visitdate // no created/modified date to clean visitdate 
 ********************************************
 ********************************************
 
@@ -462,6 +580,34 @@ destring birthyear, replace
 corcf * using temp\bv_subjects_clean, id(subject_number) verbose noobs 
 
 /*
+2025-04-03
+note: master has 61887 observations; using has 61801 observations
+sex: does not exist in using
+sex_code: does not exist in using
+curated_diagnosis_year: does not exist in using
+symptom_year: does not exist in using
+marital_status: does not exist in using
+race_other_txt: does not exist in using
+c_education: does not exist in using
+famhx_mother: does not exist in using
+famhx_father: does not exist in using
+c_dw_event_instance_key: does not exist in using
+dw_event_type_acronym: does not exist in using
+full_version: does not exist in using
+c_effective_event_date: does not exist in using
+c_provider_id: does not exist in using
+race_white: does not exist in using
+race_black: does not exist in using
+race_asian: does not exist in using
+race_other: does not exist in using
+race_native_am: does not exist in using
+race_pacific: does not exist in using
+hispanic: does not exist in using
+famhx_mi_or_stroke: does not exist in using
+visitdate: does not exist in using
+height_in_tot: does not exist in using
+Comparison of common IDs follows
+
 birthyear: 9 mismatches
 
   +-------------------------------------------+
@@ -662,19 +808,22 @@ site_number: 144 mismatches
 */
 
 // 2025-01-09 use update replace for birthyear and site_number from bv_subjects_clean data 
+
 merge 1:1 subject_number using temp\bv_subjects_clean, update replace 
+
 /*
     Result                           # of obs.
     -----------------------------------------
-    not matched                           704
-        from master                       393  (_merge==1)
+    not matched                           706
+        from master                       395  (_merge==1)
         from using                        311  (_merge==2)
 
-    matched                            61,113
-        not updated                    60,960  (_merge==3)
+    matched                            61,508
+        not updated                    61,355  (_merge==3)
         missing updated                     0  (_merge==4)
         nonmissing conflict               153  (_merge==5)
     -----------------------------------------
+
 */
 
 rename _m subj_form 
@@ -692,8 +841,9 @@ drop if site_number >= 997 // test sites
 
 destring full_version, replace 
 
-cap drop parent_study_acronym c_height_inches_alt symptom_year_alt marital_status_alt c_education_alt parent_study_uid dw_subject_uid is_in_substudy_1 earliest_site_uid most_recent_site_uid 
-
+// 2025-02-05 changed the *_uid var names 
+*cap drop parent_study_acronym c_height_inches_alt symptom_year_alt marital_status_alt c_education_alt parent_study_uid dw_subject_uid is_in_substudy_1 earliest_site_uid most_recent_site_uid 
+cap drop parent_study_acronym c_height_inches_alt symptom_year_alt marital_status_alt c_education_alt  is_in_substudy_1 // parent_study_uid dw_subject_uidearliest_site_uid most_recent_site_uid 
 * combine with site status and state 
 sort site_number
 merge m:1 site_number using temp\temp_sites // 25 sites no subjects 
@@ -710,11 +860,13 @@ drop c_effective_event_date subj_form
 
 sort subject_number 
 codebook visitdate // [01oct2001,07jan2025] ==> [01jan1900,31dec2024]
-count if visitdate>d(31dec2024) //326
-
+*count if visitdate>d(28feb2025) // 2025-02-05 those are the missing visitdates
+mdesc visitdate // 311 
 count if visitdate>d($cutdate)
 drop if visitdate>d($cutdate)
-
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
 
 ** save dataset 
 compress
@@ -722,69 +874,37 @@ save clean_table\1_1_subjects_$datacut, replace
 
 erase temp\temp_exit.dta 
 
-/* LG 2024-09-03 subject already in data. Do not need to do this step again.
-use clean_table\1_1_subjects.dta, clear
-*2024-08-06 update one subject 144010163 missing in this build bv_subject_demographic_data 
-use "~\Corrona LLC\Biostat Data Files - RA\monthly\2024\2024-08-01\clean_table\1_1_subjects.dta", clear 
-keep if subject_number=="144010163"
-merge 1:1 subject_number using clean_table\1_1_subjects.dta 
-drop _m 
+corcf * using "$pdata\clean_table\1_1_subjects_$pdatacut", id(subject_number)
 
-sort subject_number 
-save clean_table\1_1_subjects.dta, replace 
+/* 
+2025-04-10
+note: master has 61492 observations; using has 61374 observations
+diagnosis_date: does not exist in using
+Comparison of common IDs follows
+birthyear: 2 mismatches
+curated_diagnosis_year: 24 mismatches
+symptom_year: 18 mismatches
+marital_status: 18 mismatches
+c_education: 18 mismatches
+famhx_mother: 2 mismatches
+famhx_father: 4 mismatches
+c_dw_event_instance_key: 61326 mismatches
+race_white: 18 mismatches
+race_black: 18 mismatches
+race_asian: 18 mismatches
+race_other: 18 mismatches
+race_native_am: 18 mismatches
+race_pacific: 18 mismatches
+hispanic: 18 mismatches
+famhx_mi_or_stroke: 18 mismatches
+height_in_tot: 23 mismatches
+diagnosis_year: 24 mismatches
+most_recent_visit_date: 1834 mismatches
+exit_form_date: 1641 mismatches
+exit_reason: 95 mismatches
+exit_other: 38 mismatches
+death_dt: 16 mismatches
+status: 137 mismatches
+
 */
-
-
-
-/*
-use clean_table\1_1_subjects.dta, clear 
-
-#delimit;
-drop 
-subject_number
-site_number
-visitdate
-dw_event_type_acronym
-full_version
-study_source_acronym
-dw_event_instance_uid
-c_provider_id
-
-
-female_male
-birthyear
-diagnosis_year
-enrollment_provider_id
-enrollment_date
-earliest_visit_date
-most_recent_visit_date
-earliest_site_number
-most_recent_site_number
-
-symptom_year
-hispanic
-race_white
-race_black
-race_asian
-race_native_am
-race_pacific
-race_other
-race_other_specify
-c_education
-marital_status
-height_in_tot
-famhx_mi_or_stroke
-famhx_father
-famhx_mother
-state
-status
-region
-site_type
-exit_form_date
-exit_reason
-exit_other
-death_dt
-
-;
-#delimit cr 
 

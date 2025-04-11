@@ -13,10 +13,20 @@ use "temp\1_4_alllabs_temp", clear
 destring site_number full_version, replace 
 drop if site_number>=997 
 
+assert c_effective_event_date!="" 
+
 gen visitdate=date(c_effective_event_date, "YMD") 
 format visitdate %tdCCYY-NN-DD 
+// 2025-03-05 LG clean wrong visitdates 
+codebook visitdate  
+count if visitdate>d($cutdate) // 744
 
-assert c_effective_event_date!="" 
+br subject_number visitdate c_event_created_date c_event_last_modified_date if visitdate>d($cutdate) //, noobs ab(16) 
+gen created_date=dofc(c_event_created_date)
+format created_date %tdCCYY-NN-DD
+replace visitdate=created_date if visitdate>15+d($cutdate)
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16)
+count if visitdate>d($cutdate) // 124==>87
 
 gen labkey=lab_img_name if lab_img_type==1 
 assert labkey!="" if lab_img_type==1 
@@ -64,7 +74,7 @@ tab less_great
 ------------+-----------------------------------
       Total |      6,294      100.00
 
-	  */ 
+*/ 
 	  
 tab lab_result_lt_or_gt less_great, m 
 replace lab_result_lt_or_gt=1 if less_great=="<" & lab_result_lt_or_gt==. 
@@ -334,16 +344,189 @@ drop lab_uln uln
  
 sort subject_number visitdate lab_img_name lab_img_dt   
 
+// 2025-02-25 clean lab_img_dt 
+/*
+test that  lab_img_dt is exactly the same as the numeric format of the raw date
+br lab_img_dt_raw lab_img_dt
+gen lab_img_dt_raw_num=date(lab_img_dt_raw,"YMD")
+format lab_img_dt_raw_num %tdCCYY-NN-DD
+
+compare lab_img_dt_raw_num lab_img_dt
+
+cap drop lab_img_dt_raw_num*/  
+
+*use clean_table\1_4_alllabs_2025-02-01, clear
+
+cap drop lab_img_dt_raw
+rename lab_img_dt lab_img_dt_raw
+gen lab_year=year(lab_img_dt_raw)
+
+count if lab_year>2025 & lab_year<.
+count if lab_year<1960
+
+gen visit_year=year(visitdate)
+
+count if lab_year>visit_year & lab_year<. // 4,898
+*count if lab_year<visit_year
+*compare lab_year visit_year 
+
+*br lab_img_dt visitdate if lab_year>visit_year & lab_year<. 
+*tab dw_event_type_acronym if lab_year>visit_year & lab_year<.
+
+// Step 1, replace to visit year if lab year is not real // 906
+
+replace lab_year=visit_year if lab_year>2025 & lab_year<.|lab_year<1960 
+
+// Step 2, if lab year is later than the visit_year, replace lab year to visit year // 4,790 
+gen lab_mon=month(lab_img_dt_raw)
+gen lab_day=day(lab_img_dt_raw)
+*tab lab_year if lab_year>visit_year & lab_year<.
+count if lab_year>visit_year & lab_year<. 
+
+
+replace lab_year=visit_year if lab_year>visit_year & lab_year<.  
+
+/* 2025-03-05 LG: need to setup visit data first to perform this step. Hold it
+ 2025-03-07 use lab data to create prev visit, it will be the prev visit with a lab, could be different from the allvisits  
+Step 3, if 1) lab date is more than one year earlier than both the visit_year and even earlier than the the prev visit date, and 2) the dw_event_type_acronym is not EN and 3) lab type is not image and 4) lab name is not ccp/rf/vitamin D/vectra_da, then replace lab year to visit year */
+// get prev_visit date from temp data 
+*use clean_table\1_4_alllabs_$datacut, clear
+
+preserve 
+keep subject_number visitdate
+duplicates drop subject_number visitdate, force 
+unique subject_number visitdate 
+sort subject_number visitdate 
+
+by subject_number: gen lab_visit_indexn=_n 
+by subject_number: gen lab_visit_indexN=_N 
+
+by subject_number: gen first_lab_visit=visitdate[1]
+by subject_number: gen last_lab_visit=visitdate[_N]
+by subject_number: gen prev_lab_visit=visitdate[_n-1] // not using prev_visit yet, just in case will use it later. 
+by subject_number: gen next_lab_visit=visitdate[_n+1]
+format  first_lab_visit last_lab_visit prev_lab_visit next_lab_visit %tdCCYY-NN-DD  
+lab var lab_visit_indexn "the order of lab visit dates"
+lab var lab_visit_indexN "the total number of lab visit dates"
+lab var first_lab_visit "first lab visit date"
+lab var last_lab_visit "last lab visit date"
+lab var prev_lab_visit "previous lab visit date, if available"
+lab var next_lab_visit "next lab visit date, if available"
+keep subject_number visitdate lab_visit_index* first_lab_visit last_lab_visit prev_lab_visit next_lab_visit
+mdesc *
+
+sort subject_number visitdate
+ 
+save temp\alllabs_link_visit, replace 
+restore 
+
+*use temp\alllabs_link_visit, clear 
+*corcf * using temp\allvisits_link_visit, id(subject_number visitdate)
+
+merge m:1 subject_number visitdate using "temp\alllabs_link_visit", keepus(prev_lab_visit next_lab_visit)
+keep if _m==3 
+drop _m 
+
+
+// change to year of prev visit, down from 12.6 k to 5k  
+count if lab_year<visit_year &  lab_img_dt_raw-visitdate<-365 & lab_img_dt_raw<prev_lab_visit & prev_lab_visit<.  & dw_event_type_acronym!="EN" & inlist(lab_img_name, "ccp", "rf", "vit_d", "vectra_da")==0 & lab_img_type==1 // 4,444
+
+*br lab_img_name lab_img_dt visitdate prev_visit if lab_year<visit_year &  lab_img_dt_raw-visitdate<-365 & lab_img_dt_raw<prev_visit & prev_visit<.  & dw_event_type_acronym!="EN" & inlist(lab_img_name, "ccp", "rf", "vit_d", "vectra_da")==0 & lab_img_type==1 
+
+replace lab_year=visit_year if lab_year<visit_year &  lab_img_dt_raw-visitdate<-365 & lab_img_dt_raw<prev_lab_visit & prev_lab_visit<.  & dw_event_type_acronym!="EN" & inlist(lab_img_name, "ccp", "rf", "vit_d", "vectra_da")==0 & lab_img_type==1
+
+// combine year month date together, compare lab date to visit date to see if lab date is still later than visitdate when they are in the same year 
+*cap drop lab_img_dt
+gen lab_img_dt=mdy(lab_mon, lab_day, lab_year)
+format lab_img_dt %tdCCYY-NN-DD
+lab var lab_img_dt "Date of lab or imaging test, cleaned"
+*br lab_img_dt_raw lab_img_dt visitdate prev_visit if lab_img_dt!=lab_img_dt_raw
+
+
+compare lab_img_dt visitdate 
+
+/*
+                                        ---------- difference ----------
+                            count       minimum      average     maximum
+------------------------------------------------------------------------
+lab_im~dt<visitdate       1951931        -23347    -124.7848          -1
+lab_im~dt=visitdate       2352852
+lab_im~dt>visitdate        183333             1     10.61712         361
+                       ----------
+jointly defined           4488116        -23347    -53.83659         361
+lab_im~dt missing only      30181
+                       ----------
+total                     4518297
+*/
+
+cap drop dif
+gen dif=lab_img_dt-visitdate 
+sum dif, d 
+
+sum dif if dif>0 ,d // all less than one yar 
+
+*count if dif>0 & dif<. & lab_img_dt>next_visit & lab_img_dt<. // 1,528
+
+*groups dw_event_type_acronym lab_img_type lab_img_name if dif>0 & dif<. & lab_img_dt>next_visit & lab_img_dt<., missing ab(16)
+
+*br subject_number dw_event_type_acronym lab_img_name lab_img_dt_raw lab_img_dt visitdate next_visit if dif>0 & dif<. & lab_img_dt>next_visit & lab_img_dt<.
+
+*br subject_number dw_event_type_acronym lab_img_name lab_img_dt_raw lab_img_dt visitdate next_visit if dif>365 & lab_img_dt<. & lab_img_dt<=next_visit & next_visit<.
+
+// print example for step 1 
+preserve 
+keep if year(lab_img_dt_raw)>2025 & year(lab_img_dt_raw)<.|year(lab_img_dt_raw)<1960
+list subject_number dw_event_type_acronym lab_img_name visitdate lab_img_dt_raw lab_img_dt in 1/10, noobs ab(16)
+restore 
+
+// print examples for step 2
+preserve 
+keep if year(lab_img_dt_raw)>visit_year & year(lab_img_dt_raw)<. 
+list subject_number dw_event_type_acronym lab_img_name visitdate lab_img_dt_raw lab_img_dt in 1/10, noobs ab(16)
+restore 
+
+/* print example for step 3 */
+preserve 
+keep if year(lab_img_dt_raw) < 2025 & year(lab_img_dt_raw) >1960 & year(lab_img_dt_raw)<visit_year &  lab_img_dt_raw-visitdate<-365 & lab_img_dt_raw<prev_lab_visit & prev_lab_visit<.  & dw_event_type_acronym!="EN" & inlist(lab_img_name, "ccp", "rf", "vit_d", "vectra_da")==0 & lab_img_type==1
+list subject_number dw_event_type_acronym lab_img_name visitdate prev_lab_visit lab_img_dt_raw lab_img_dt in 1/10, noobs ab(18)
+restore 
+
+*tab lab_year if lab_year>visit_year 
+
+drop lab_year visit_year lab_mon lab_day prev_lab_visit next_lab_visit dif
+drop created_date
+drop c_event_created_date c_event_last_modified_date
+// 2025-02-26 END of cleaning lab_img_dt
+
 unique  subject_number visitdate lab_img_type lab_img_name lab_img_dt   // not unique 
-codebook visitdate // [01jan1900,07jan2025] ==> [01jan1900,31dec2024]
-count if visitdate>d(31dec2024)
+codebook visitdate // [01oct2001,11dec2025]
+
+count if visitdate>d(31mar2025) // 707
 
 count if visitdate>d($cutdate)
 drop if visitdate>d($cutdate)
+
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
+ds, not(Varlabel) v(32)
 compress 
 save clean_table\1_4_alllabs_$datacut, replace 
 
 
+cap log close 
+log using temp\1_4_alllabs_test.log, replace 
+use "$pdata\clean_table\1_4_alllabs_$pdatacut", clear 
+unique  subject_number visitdate lab_img_type lab_img_name lab_img_dt 
+bysort subject_number visitdate lab_img_type lab_img_name lab_img_dt: drop if _N>1
+save temp\1_4_alllabs_test, replace 
+
+use clean_table\1_4_alllabs_$datacut, clear 
+unique  subject_number visitdate lab_img_type lab_img_name lab_img_dt 
+bysort subject_number visitdate lab_img_type lab_img_name lab_img_dt: drop if _N>1
+
+corcf * using temp\1_4_alllabs_test, id(subject_number visitdate lab_img_type lab_img_name lab_img_dt)
+log close 
 
 
 

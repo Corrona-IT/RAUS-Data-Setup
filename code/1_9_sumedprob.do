@@ -97,6 +97,9 @@ replace medprobs_key = "wheezing" if medprobs_name == "wheezing"
 
 gen visitdate=date(c_effective_event_date, "YMD") 
 format visitdate %tdCCYY-NN-DD  
+
+codebook visitdate // all preTM data 
+
 destring site_number full_version, replace 
 unique subject_number visitdate medprobs_key 
 
@@ -104,8 +107,10 @@ assert medprobs_key!=""
 
 tab medprobs_name if medprobs_key=="" 
 
-drop specs_ctag specs_csubtype c_is_suppressed_not_seen dw_crf_instance_uid dw_cordinal 
-drop c_effective_event_date dw_subject_uid c_edc_event_instance_key dw_site_uid 
+drop c_effective_event_date c_edc_event_instance_key   specs_ctag specs_csubtype c_is_suppressed_not_seen dw_crf_instance_uid dw_cordinal 
+// 2025-02-06 updated var names 
+*dw_subject_uid dw_site_uid 
+drop c_site_key c_subject_key
 
 preserve 
 keep if medprobs_other_spec!="" & medprobs_name=="malignancy other (specify)"  // preTM only other cancer with text free field 
@@ -185,9 +190,12 @@ list subject_number dw_event_type_acronym source full_version site_number c_effe
   +--------------------------------------------------------------------------------------------------------------------------------------+
 */
 
-
+// 2025-03-06 clean visitdate 
 replace visitdate=c_event_created_date if visitdate==. 
- 
+codebook visitdate 
+count if visitdate>d($cutdate) // 3
+replace visitdate=c_event_created_date if visitdate>15+d($cutdate)
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16) 
 unique subject_number visitdate 
 
 *deduplicates, keep later version if duplicates 
@@ -283,7 +291,9 @@ lab var full_version  "Form version"
 lab var c_provider_id "Provider ID"
 lab var c_event_created_date "Form created date" 
 lab var c_event_last_modified_date "Form last modified date" 
-lab var dw_event_instance_uid "ENG created unique ID" 
+// 2025-02-06 
+lab var c_dw_event_instance_key "ENG created unique ID" 
+*lab var dw_event_instance_uid "ENG created unique ID" 
 lab var med_prob_htn  "High blood pressure"
 lab var med_prob_mi  "Heart attack"
 lab var med_prob_anemia  "Anemia (low red blood cells)"
@@ -383,19 +393,41 @@ lab var med_prob_heart_attack  "Heart attack (other)"
 lab var med_prob_blood_other_spec "other blood (specify)" 
 lab var med_prob_cancer_other_spec "other cancer (specify)" 
 
-drop dw_site_uid dw_subject_uid c_is_*  
+drop  c_is_* 
+drop c_site_key c_subject_key
+*drop dw_site_uid dw_subject_uid 
 drop parent_study_acronym c_edc_event_instance_key c_dw_event_instance_key c_effective_event_date
 
 unique subject_number visitdate 
 compress 
 
 codebook visitdate 
-count if visitdate>d($cutdate) // 84
+count if visitdate>d($cutdate) // 64
 
 drop if visitdate>d($cutdate)
 
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
+
 order subject_number visitdate site_number 
 
-save clean_table\1_11_sumedprobs_$datacut, replace 
+save clean_table\1_9_sumedprobs_$datacut, replace 
 
+unique subject_number visitdate med_prob_* 
+use "$pdata\clean_table\1_9_sumedprobs_$pdatacut", clear 
+foreach x in med_prob_blood_other_spec med_prob_cancer_other_spec  {
+gen str100 _tmp = `x'
+drop `x'
+rename _tmp `x'
+}
+save temp\1_9_sumedprobs_$pdatacut, replace 
+use clean_table\1_9_sumedprobs_$datacut, clear 
+foreach x in med_prob_blood_other_spec med_prob_cancer_other_spec  {
+gen str100 _tmp = `x'
+drop `x'
+rename _tmp `x'
+}
 
+corcf * using "temp\1_9_sumedprobs_$pdatacut", id(subject_number visitdate med_prob_* )
+cap log close 

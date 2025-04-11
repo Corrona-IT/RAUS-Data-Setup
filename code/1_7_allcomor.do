@@ -29,17 +29,32 @@ save temp\temp_tae_nmel_type, replace
 // 2024-12-04: have to make sure two data are in the same date schema so they have the same dw_event_instance_uid
 
 use "bv_raw\bv_comorbidities", clear 
+// 2025-02-04 : It has been replaced with c_dw_event_instance_key which is a persistent unique identifier (will not change value with each build).
+*merge m:1 dw_event_instance_uid using "bv_raw\bv_event_instances", keepus(visit_date) 
+merge m:1 c_dw_event_instance_key using "bv_raw\bv_event_instances", keepus(visit_date)
 
-merge m:1 dw_event_instance_uid using "bv_raw\bv_event_instances", keepus(visit_date) 
+/*
+    Result                           # of obs.
+    -----------------------------------------
+    not matched                       611,903
+        from master                         0  (_merge==1)
+        from using                    611,903  (_merge==2)
+
+    matched                           185,229  (_merge==3)
+    -----------------------------------------
+*/
+
 drop if _m==2 
 drop _m 
+
+drop if site_number=="999" | site_number=="998" | site_number=="1440" |site_number=="1019" // test sites 
 
 gen visitdate=date(visit_date, "YMD")
 replace visitdate=date(c_effective_event_date, "YMD") if visitdate==. & strpos(c_effective_event_date, "X")==0 
 replace visitdate=dofc(c_event_created_date) if visitdate==. 
 format visitdate %tdCCYY-NN-DD 
 // 2024-12-04 
-codebook visitdate // no entries for 30dec2024
+codebook visitdate // [01jan1900,30jan2025]
 
 assert visitdate<. 
 ********************************************
@@ -50,7 +65,86 @@ drop if site_number=="999" | site_number=="998" | site_number=="1440" |site_numb
 ** create event_uid to identify specific events later within code 
 gen event_uid = _n
 
+// 2025-03-04: LG, using created or modified dates for visitdates that are out of range 
+count if visitdate>d($cutdate) // 20 
 
+// 2025-04-02 checking a subject previously had visitdate of 2025-03-28 in base view back in March. last modified date changed from 03-03 to 03-31.
+for any RA-252-0006: list subject_number visitdate c_event_created_date c_event_last_modified_date if subject_number=="X", noobs ab(16)
+/*
+  +-----------------------------------------------------------------------+
+  | subject_number    visitdate   c_event_created_~e   c_event_last_mod~e |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   31mar2025 20:50:58 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   31mar2025 20:50:58 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   31mar2025 20:50:58 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   31mar2025 20:50:58 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   31mar2025 20:50:58 |
+  +-----------------------------------------------------------------------+
+*/
+list subject_number visitdate c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16) 
+/*
+  +-----------------------------------------------------------------------+
+  | subject_number    visitdate   c_event_created_~e   c_event_last_mod~e |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-28   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-254-0079   2025-03-03   03mar2025 22:28:54   04mar2025 03:54:29 |
+  |    RA-254-0079   2025-03-03   03mar2025 22:28:54   04mar2025 03:54:29 |
+  |    RA-254-0079   2025-03-03   03mar2025 22:28:54   04mar2025 03:54:29 |
+  +-----------------------------------------------------------------------+
+*/
+gen created_date=dofc(c_event_created_date)
+format created_date %tdCCYY-NN-DD
+replace visitdate=created_date if visitdate>15+d($cutdate)
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16)
+/*
+  +-----------------------------------------------------------------------+
+  | subject_number    visitdate   c_event_created_~e   c_event_last_mod~e |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0006   2025-03-03   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-03   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-03   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-03   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |    RA-252-0006   2025-03-03   03mar2025 17:34:29   03mar2025 19:50:28 |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |-----------------------------------------------------------------------|
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-252-0007   2025-03-03   03mar2025 22:46:04   04mar2025 00:19:26 |
+  |    RA-254-0079   2025-03-03   03mar2025 22:28:54   04mar2025 03:54:29 |
+  |    RA-254-0079   2025-03-03   03mar2025 22:28:54   04mar2025 03:54:29 |
+  |    RA-254-0079   2025-03-03   03mar2025 22:28:54   04mar2025 03:54:29 |
+  +-----------------------------------------------------------------------+
+
+*/
 *~~~~~~~~~~~ Impute onset date - NEED TO UPDATE BASED ON DISCUSSION
 
 ** keep onset_date variable as-is so we retain the original variable - keep raw and separate out month/year/day 
@@ -65,11 +159,8 @@ gen onset_month_impute = strlower(substr(onset_date_impute,6,2))
 replace onset_month_impute="" if onset_month_impute=="xx" // change 'xx' missing month to missing 
 gen onset_day_impute = strlower(substr(onset_date_impute,9,2))
 replace onset_day_impute="" if onset_day_impute=="xx" // change 'xx' missing day to missing 
-*/
-gen onset_year = strlower(substr(onset_date,1,4))
-gen onset_month = strlower(substr(onset_date,6,2))
-gen onset_day = strlower(substr(onset_date,9,2))
 
+*/
 
 
 *~~~~~~~~~~~ Standardize comor_type
@@ -350,8 +441,6 @@ save "temp\data\respiratory_oth", replace
 restore 
 
 
-
-
 ** drug-induced reactions 
 * - drug hypersensitivity
 
@@ -397,14 +486,14 @@ no observations
   |-----------------------------------------------------------------------------------------------------------------------------|
   |           17040   drug hypersensitivity reaction (specify severity)                                           400    100.00 |
   +-----------------------------------------------------------------------------------------------------------------------------+
-*/
+
 groups comor_type_code comor_type_txt comor_type_txt_new if strpos(comor_type_txt_new,"anaphylaxis"), missing ab(20)
 groups comor_type_code comor_type_txt comor_type_txt_new if strpos(comor_type_txt_new,"hypersensitivity reaction"), missing ab(20)
 groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17041, missing ab(20)
 *groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17090, missing ab(20) // no obs 
 groups comor_type_code comor_type comor_type_txt comor_type_txt_new if comor_type_code==17040, missing ab(20)
 //2024-11-01 LG hold this part
-
+*/
 // 2024-12-04 LG added back, but no change is expected 
 preserve 
 keep if strpos(comor_type_txt_new, "hypersensitivity reaction")>0 |strpos(comor_type_txt_new, "anaphylaxis")>0  
@@ -523,9 +612,6 @@ save "temp\data\malignancy_pre", replace
 restore 
 
 
-
-
-
 ** gi/hepatic 
 * - peptic ulcer
 preserve 
@@ -592,8 +678,6 @@ save "temp\data\hepatic_nonser", replace
 restore	
 
 
-
-
 ** musculoskeletal 
 * - osteoarthritis 
 preserve 
@@ -626,7 +710,6 @@ replace comor_type_new = "subcutaneous nodules"
 replace comor_type_code_new = 10080
 save "temp\data\sub_nodules", replace 
 restore 
-
 
 
 * - fracture  - combine serious and non-serious (how reported in comor_type_new)
@@ -1125,11 +1208,9 @@ replace comorkey = "oth_cond" if missing(comorkey)
 
 save "temp\data\full_clean_before_dedup", replace 
 
-
 *~~~~~~~~~~~ De-duplication 
 
 *** we will use a leveling approach to flag duplicates based on most detailed to most general overlaps
-
 
 ***** 1. Exact duplicate within visits (EN/FU/RFU) - we will push most recent non-missing information to 1st record in duplicate (EN record if available)
 ** de-duplicate by id, comor type (detailed version), comor type text, onset year, onset month, location (for fracture)
@@ -1139,9 +1220,23 @@ save "temp\data\full_clean_before_dedup", replace
 * 1/12/2024: Do not remove fractures from de-duplication within source (MD/TAE) - de-duplicate by location 
 
 ** create separate datasets for visits data (MD) and TAE data - we will de-duplicate within visits this round
-*use "temp\data\full_clean_before_dedup", clear
-gen visit=1 if md_tae=="md" 
-replace visit=0 if md_tae=="tae"
+use "temp\data\full_clean_before_dedup", clear 
+
+gen onset_date_imp=onset_date 
+replace onset_date_imp=c_effective_event_date if onset_date=="" & strpos(c_effective_event_date, "TAE") // Ying 2025-02-26 added if missing onset_date in TAE, use reported_date 
+
+gen onset_year = strlower(substr(onset_date_imp,1,4))
+gen onset_month = strlower(substr(onset_date_imp,6,2))
+gen onset_day = strlower(substr(onset_date_imp,9,2)) 
+
+for any month day: replace onset_X="01" if (onset_X=="xx" | onset_X=="uk" | onset_X=="") & onset_year!=""  
+
+gen visit=md_tae=="md" 
+
+preserve 
+keep if comor_type_new == "non-melanoma skin cancer (nmsc) squamous cell / basal cell" 
+save "temp\data\1nmsc", replace 
+restore 
 
 preserve 
 keep if visit==1 & comor_type_new != "non-melanoma skin cancer (nmsc) squamous cell / basal cell" 
@@ -1153,21 +1248,19 @@ keep if visit==0 & comor_type_new != "non-melanoma skin cancer (nmsc) squamous c
 save "temp\data\1tae", replace 
 restore 
 
-preserve 
-keep if comor_type_new == "non-melanoma skin cancer (nmsc) squamous cell / basal cell" 
-save "temp\data\1nmsc", replace
-restore 
-
+***** Deduplicate within MD
 use "temp\data\1visits", clear
-bysort subject_number: gen enfirstfusecond=0 if dw_event_type_acronym=="EN"
-bysort subject_number: replace enfirstfusecond=1 if dw_event_type_acronym~="EN"
+bysort subject_number: gen enfirstfusecond=0 if dw_event_type_acronym=="EN" & md_tae=="md" 
+bysort subject_number: replace enfirstfusecond=1 if dw_event_type_acronym~="EN" & md_tae=="md"  
 
-sort subject_number comor_type_new comor_type_txt_new onset_year onset_month location enfirstfusecond
+sort subject_number comor_type_new comor_type_txt_new onset_year onset_month location enfirstfusecond onset_day 
 by subject_number comor_type_new comor_type_txt_new onset_year onset_month location: gen comorevent_dup1 = cond(_N==1,0,_n)
 by subject_number: gen conscount=1 if comorevent_dup1==1
 ** for each episode of duplicate cases with a subject- we get a distinct number
 by subject_number: gen Count_conscount=sum(conscount)
 replace Count_conscount=. if comorevent_dup1==0 // remove from consideration records that are not part of duplicates
+
+tab comorevent_dup1 visit 
 
 
 *browse subject_number comor_type_new comor_type_txt_new onset_year onset_month location enfirstfusecond comorevent_dup1 conscount Count_conscount if comorevent_dup1>1
@@ -1178,42 +1271,38 @@ replace Count_conscount=. if comorevent_dup1==0 // remove from consideration rec
 
 local updatevar injection_reaction_code infusion_reaction_code serious_code targeted drug_tox_code drug_tox_fda_rpt_code drug_tox_fda_code ///
          injection_reaction infusion_reaction serious  drug_tox drug_tox_fda_rpt drug_tox_fda
-foreach v of local updatevar {
-  sort subject_number Count_conscount comorevent_dup1 
+foreach v of local updatevar { 
   gen miss_flag=0 if !missing(`v')
   replace miss_flag=1 if missing(`v')
 
   gsort subject_number Count_conscount miss_flag -c_effective_event_date 
   by subject_number Count_conscount: replace `v' = `v'[1] if comorevent_dup1>0
   drop miss_flag
-}		 
-
-
+}	
+	
+	
 ** remove duplicate information 
 drop if comorevent_dup1>0 & conscount!=1
 
-drop comorevent_dup1 conscount Count_conscount
+drop comorevent_dup1 conscount Count_conscount 
 
 
 ** save dataset - this will be the new 'visits' dataset to be used for further de-duplication 
 save "temp\data\2visits", replace 
 
 
-
-
-
 ***** 2. Duplicates within TAE - we will push most recent non-missing information to 1st record in duplicate and keep the 1st record (all duplicate records will have same most-recent information)
 ** de-duplicate by id, comor type (detailed version), comor type text (keep in - checked removing this and tagged many as duplicates that were not duplicates), onset date (day-level)
 use "temp\data\1tae", clear
 
-sort subject_number comor_type_new comor_type_txt_new onset_date location_txt_new
-by subject_number comor_type_new comor_type_txt_new onset_date: gen comorevent_dup1 = cond(_N==1,0,_n)
-by subject_number: gen conscount=1 if comorevent_dup1==1
-** for each episode of duplicate cases with a subject- we get a distinct number
+sort subject_number comor_type_new comor_type_txt_new onset_date_imp location_txt_new
+by subject_number comor_type_new comor_type_txt_new onset_date_imp: gen comorevent_dup1 = cond(_N==1,0,_n)
+by subject_number: gen conscount=1 if comorevent_dup1==1 
+** for each episode of duplicate cases with a subject- we get a distinct number 
 by subject_number: gen Count_conscount=sum(conscount)
 replace Count_conscount=. if comorevent_dup1==0 // remove from consideration records that are not part of duplicates
 
-browse subject_number comor_type_new comor_type_txt_new onset_date location_txt_new comorevent_dup1 conscount Count_conscount if comorevent_dup1>0
+*browse subject_number comor_type_new comor_type_txt_new onset_date location_txt_new comorevent_dup1 conscount Count_conscount if comorevent_dup1>0
 *036010664
 
 ** push most recent non-missing information to enrollment/first record so keeping most up-to-date information for the comorbidity  
@@ -1229,8 +1318,7 @@ by subject_number Count_conscount: replace serious_code = serious_code[1] if com
 
 local updatevar injection_reaction_code infusion_reaction_code serious_code targeted drug_tox_code drug_tox_fda_rpt_code drug_tox_fda_code ///
          injection_reaction infusion_reaction serious  drug_tox drug_tox_fda_rpt drug_tox_fda location_txt_new 
-foreach v of local updatevar {
-  sort subject_number Count_conscount comorevent_dup1 
+foreach v of local updatevar { 
   gen miss_flag=0 if !missing(`v')
   replace miss_flag=1 if missing(`v')
 
@@ -1244,78 +1332,13 @@ drop if comorevent_dup1>0 & conscount!=1
 
 drop comorevent_dup1 conscount Count_conscount
 
-
 ** save dataset - this will be the new 'visits' dataset to be used for further de-duplication 
 save "temp\data\2tae", replace 
 
+***** 3. Duplicates within MD and TAE  (non-nmsc and non-fracture)
 
-
-
-***** 3. Duplicates within nmsc between MD and TAE - allow duplicates by date but not by source   
-use "temp\data\1nmsc", clear 
-
-sort subject_number comor_type_new onset_year onset_month visit location_txt_new 
-
-duplicates tag subject_number comor_type_new onset_year onset_month, gen(_dup1)
-
-bysort subject_number: gen enfirstfusecond=0 if dw_event_type_acronym=="EN"
-bysort subject_number: replace enfirstfusecond=1 if dw_event_type_acronym~="EN"
-
-browse subject_number comor_type_new onset_year onset_month visit location_txt_new  _dup1 dw_event_type_acronym if _dup1>1
-
-browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond if _dup1>1
-
-gen flag_md=1 if visit==1
-gen flag_tae=1 if visit==0
-
-egen total_md = total(flag_md), by(subject_number comor_type_new onset_year onset_month)
-egen total_tae = total(flag_tae), by(subject_number comor_type_new onset_year onset_month)
-
-sort subject_number comor_type_new onset_year onset_month visit c_effective_event_date
-by subject_number comor_type_new onset_year onset_month: gen sum_md = sum(flag_md)
-by subject_number comor_type_new onset_year onset_month: gen sum_tae = sum(flag_tae)
-gen sum = sum_md if visit==1
-replace sum = sum_tae if visit==0
-
-browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond  total_md total_tae sum_md sum_tae sum if _dup1>1
-browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond  total_md total_tae sum_md sum_tae sum if total_md>1 & total_tae>1
-
-gsort subject_number comor_type_new onset_year onset_month sum enfirstfusecond visit  
-by subject_number comor_type_new onset_year onset_month sum: gen flag=1 if visit[_n] != visit[_n-1] & _n!=1
-
-browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond total_md total_tae sum_md sum_tae sum flag if _dup1>1
-browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond total_md total_tae sum_md sum_tae sum flag if total_md>1 & total_tae>1
-
-
-local updatevar injection_reaction_code infusion_reaction_code serious_code targeted drug_tox_code drug_tox_fda_rpt_code drug_tox_fda_code ///
-         injection_reaction infusion_reaction serious  drug_tox drug_tox_fda_rpt drug_tox_fda location_txt_new 
-foreach v of local updatevar {
-  gen miss_flag=0 if !missing(`v')
-  replace miss_flag=1 if missing(`v')
-
-  gsort subject_number comor_type_new onset_year onset_month sum miss_flag 
-  by subject_number comor_type_new onset_year onset_month sum: replace `v' = `v'[1] if _dup1>0
-  drop miss_flag
-}	
-
-browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond sum flag onset_date if _dup1>1
-gsort subject_number comor_type_new onset_year onset_month sum visit 
-by subject_number comor_type_new onset_year onset_month sum: replace onset_date = onset_date[1] if _dup1>0 	 
-
-drop if flag==1
-
-drop flag_md flag_tae total_md total_tae sum sum_md sum_tae flag enfirstfusecond
-
-save "temp\data\2nmsc", replace
-
-
-
-
-
-***** 4. Duplicates within MD and TAE  (non-nmsc and non-fracture)
 use "temp\data\2visits", clear
 append using "temp\data\2tae"
-
 drop enfirstfusecond
 
 bysort subject_number: gen enfirstfusecond=0 if dw_event_type_acronym=="EN"
@@ -1365,26 +1388,84 @@ foreach v of local updatevar {
 
 gsort subject_number comor_type_new onset_year onset_month sum visit 
 by subject_number comor_type_new onset_year onset_month sum: replace onset_date = onset_date[1] if _dup1>0 	 
-
+by subject_number comor_type_new onset_year onset_month sum: replace onset_date_imp = onset_date_imp[1] if _dup1>0 	 
 drop if flag==1
 
 drop flag_md flag_tae total_md total_tae sum sum_md sum_tae flag enfirstfusecond
 
 save "temp\data\md_tae_nonmsc", replace 
 
+*******************************************
 
+***** 4. Duplicates within nmsc between MD and TAE - allow duplicates by date but not by source   
+use "temp\data\1nmsc", clear 
+
+* Ying add on 2025-02-27 limited two since only can have two type nmsc: basal or squamous in each source 
+duplicates tag visit subject_number comor_type_new onset_date comor_type_txt_new injection_reaction_code infusion_reaction_code serious_code targeted drug_tox_code drug_tox_fda_rpt_code drug_tox_fda_code injection_reaction infusion_reaction serious drug_tox drug_tox_fda_rpt drug_tox_fda location_txt_new, gen(_dup)
+drop if _dup>2 
+drop _dup 
+*****************
+sort subject_number comor_type_new onset_year onset_month visit location_txt_new visit 
+duplicates tag subject_number comor_type_new onset_year onset_month, gen(_dup1) 
+
+bysort subject_number: gen enfirstfusecond=0 if dw_event_type_acronym=="EN"
+bysort subject_number: replace enfirstfusecond=1 if dw_event_type_acronym~="EN"
+
+browse subject_number comor_type_new onset_year onset_month visit location_txt_new  _dup1 dw_event_type_acronym if _dup1>1
+
+browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond if _dup1>1
+
+gen flag_md=1 if visit==1 
+gen flag_tae=1 if visit==0 
+
+egen total_md = total(flag_md), by(subject_number comor_type_new onset_year onset_month)
+egen total_tae = total(flag_tae), by(subject_number comor_type_new onset_year onset_month)
+
+sort subject_number comor_type_new onset_year onset_month visit c_effective_event_date
+by subject_number comor_type_new onset_year onset_month: gen sum_md = sum(flag_md)
+by subject_number comor_type_new onset_year onset_month: gen sum_tae = sum(flag_tae) 
+gen sum = sum_md if visit==1
+replace sum = sum_tae if visit==0 
+
+browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond  total_md total_tae sum_md sum_tae sum if _dup1>1
+browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond  total_md total_tae sum_md sum_tae sum if total_md>1 & total_tae>1
+
+gsort subject_number comor_type_new onset_year onset_month sum enfirstfusecond visit  
+by subject_number comor_type_new onset_year onset_month sum: gen flag=1 if visit[_n] != visit[_n-1] & _n!=1
+
+browse subject_number onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond total_md total_tae sum flag if _dup1>1
+browse subject_number onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond total_md total_tae sum flag if total_md>1 & total_tae>1   
+
+local updatevar injection_reaction_code infusion_reaction_code serious_code targeted drug_tox_code drug_tox_fda_rpt_code drug_tox_fda_code ///
+         injection_reaction infusion_reaction serious  drug_tox drug_tox_fda_rpt drug_tox_fda location_txt_new 
+foreach v of local updatevar {
+  gen miss_flag=0 if !missing(`v')
+  replace miss_flag=1 if missing(`v')
+
+  gsort subject_number comor_type_new onset_year onset_month sum miss_flag 
+  by subject_number comor_type_new onset_year onset_month sum: replace `v' = `v'[1] if _dup1>0
+  drop miss_flag
+}	
+
+browse subject_number comor_type_new onset_year onset_month visit _dup1 dw_event_type_acronym enfirstfusecond sum flag onset_date if _dup1>1
+gsort subject_number comor_type_new onset_year onset_month sum visit 
+by subject_number comor_type_new onset_year onset_month sum: replace onset_date = onset_date[1] if _dup1>0 	
+by subject_number comor_type_new onset_year onset_month sum: replace onset_date_imp = onset_date_imp[1] if _dup1>0 	
+* drop if duplicated in MD after TAE
+drop if flag==1 
+
+drop flag_md flag_tae total_md total_tae sum sum_md sum_tae flag enfirstfusecond
+
+sort subject_number comorkey onset_year onset_month 
+save "temp\data\2nmsc", replace
+
+******************************************************************************************************
 
 ***** 5. Append de-duplicated non-NMSC/non-fracture with de-duplicated nmsc/fracture   
 use "temp\data\md_tae_nonmsc", clear
 append using "temp\data\2nmsc"
 
-
-
-
-
-
 *~~~~~~~~~~~ Output clean dataset
-
 
 ** use comor_type_new and comor_type_txt_new so formatting is consistent (all lower case) - rename so fit standards (rename to original variable name and keep raw as 'orig')
 rename comor_type comor_type_orig 
@@ -1410,107 +1491,73 @@ format c_effective_event_date_formatted %tdCCYY-NN-DD
 gen reported_date_formatted = date(reported_date, "YMD")
 format reported_date_formatted %tdCCYY-NN-DD  
 
+gen visit_date_formatted = date(visit_date, "YMD")
+format visit_date_formatted %tdCCYY-NN-DD  
 
-*** impute missing onset dates:
+/*** impute missing onset dates:
 * collect visit_date from fv_event_instances dataset 
 * - use visit_date - 1 day for enrollment visit events 
 * - use visit_date for FU and TAE records that have visit_date 
 * - use c_effective_event_date for independent TAEs without visit_date 
+*/ 
 
-** use onset_date as imputed date if not missing
-gen imp_onset_date = onset_date if !missing(onset_date)
+destring onset_year, gen(year) 
+* clean onset date 
 
+// clean data enter issue onset year > report year 
+replace onset_year=substr(c_effective_event_date, 1,4) if year > year(date(c_effective_event_date, "YMD")) & onset_date!=""
 
+egen onsetdt=concat(onset_year onset_month onset_day) if onset_date!="", p("-") 
 
-** bring in visit_date from fv_event_instances 
-merge m:1 dw_event_instance_uid using "bv_raw\bv_event_instances", keepusing(dw_event_instance_uid visit_date)
-keep if _merge==3
-drop _merge 
+* EN use visit date -1 day 
+gen misdt=date(c_effective_event_date, "YMD")-1 if missing(onset_date) & dw_event_type_acronym=="EN"    
+tostring misdt, gen(misdt_str)  format("%tdCCYY-NN-DD")force  
 
-gen visit_date_formatted = date(visit_date, "YMD")
-format visit_date_formatted %tdCCYY-NN-DD  
+replace onsetdt=misdt_str if onset_date=="" & misdt_str!="" &  dw_event_type_acronym=="EN" 
 
+* FU use visit date 
+replace onsetdt=c_effective_event_date if onset_date=="" & dw_event_type_acronym!="EN" 
+assert onsetdt !="" 
 
-** enrollment visit events: use visit_date - 1 day
-gen enroll_minus1 = visit_date_formatted - 1 if dw_event_type_acronym=="EN"
-format enroll_minus1 %tdCCYY-NN-DD
-
-gen enroll_minus1_month = month(enroll_minus1)
-tostring enroll_minus1_month, gen(enroll_minus1_m)
-replace enroll_minus1_m = "01" if enroll_minus1_m=="1"
-replace enroll_minus1_m = "02" if enroll_minus1_m=="2"
-replace enroll_minus1_m = "03" if enroll_minus1_m=="3"
-replace enroll_minus1_m = "04" if enroll_minus1_m=="4"
-replace enroll_minus1_m = "05" if enroll_minus1_m=="5"
-replace enroll_minus1_m = "06" if enroll_minus1_m=="6"
-replace enroll_minus1_m = "07" if enroll_minus1_m=="7"
-replace enroll_minus1_m = "08" if enroll_minus1_m=="8"
-replace enroll_minus1_m = "09" if enroll_minus1_m=="9"
-
-gen enroll_minus1_day = day(enroll_minus1)
-tostring enroll_minus1_day, gen(enroll_minus1_d)
-replace enroll_minus1_d = "01" if enroll_minus1_d=="1"
-replace enroll_minus1_d = "02" if enroll_minus1_d=="2"
-replace enroll_minus1_d = "03" if enroll_minus1_d=="3"
-replace enroll_minus1_d = "04" if enroll_minus1_d=="4"
-replace enroll_minus1_d = "05" if enroll_minus1_d=="5"
-replace enroll_minus1_d = "06" if enroll_minus1_d=="6"
-replace enroll_minus1_d = "07" if enroll_minus1_d=="7"
-replace enroll_minus1_d = "08" if enroll_minus1_d=="8"
-replace enroll_minus1_d = "09" if enroll_minus1_d=="9"
-
-gen enroll_minus1_year = year(enroll_minus1)
-tostring enroll_minus1_year, gen(enroll_minus1_y)
-
-gen str10 enroll_minus1_full = enroll_minus1_y + "-" + enroll_minus1_m + "-" + enroll_minus1_d
-
-replace imp_onset_date = enroll_minus1_full if missing(onset_date) & !missing(enroll_minus1_full) & dw_event_type_acronym=="EN"
-
-
-drop enroll_minus1* visit_date_formatted
-
-
-** fu and tae events with non-missing visit_date - use visit_date 
-replace imp_onset_date = visit_date if missing(onset_date) & !missing(visit_date) & dw_event_type_acronym!="EN" 
-
-
-
-** independent tae - use c_effective_event_date
-replace imp_onset_date = c_effective_event_date if missing(onset_date) & !missing(c_effective_event_date) & missing(visit_date)
-
+* format to date 
+gen imp_onset_date=date(onsetdt, "YMD") 
+format imp_onset_date %tdCCYY-NN-DD 
+assert imp_onset_date<. 
+lab var imp_onset_date "Imputed onset date" 
 
 ** set flag for imputed onset_date 
-gen imp_onset_date_flag = 1 if onset_date != imp_onset_date 
+gen imp_onset_date_flag = 1 if onset_date != onsetdt  
+lab var imp_onset_date_flag "Imputed onset date-yes" 
+replace onset_date_imp =onsetdt 
+lab var onset_date_imp "Imputed onset date (str)" 
 
 
-** create date-parts of imputed onset date (month, day, year)
-gen imp_onset_year = strlower(substr(imp_onset_date,1,4))
-gen imp_onset_month = strlower(substr(imp_onset_date,6,2))
-gen imp_onset_day = strlower(substr(imp_onset_date,9,2))
-
-
-drop visit_date
-
+drop onset_date_imp visit_date  misdt misdt_str year onsetdt 
 
 ** label variables 
-label variable dw_event_instance_uid "unique id of registry event instance"
+label variable c_dw_event_instance_key "unique id of registry event instance"
 label variable parent_study_acronym	"parent study: RA"
 *label variable parent_study_uid	"parent study unique id (joining key)"
 label variable study_acronym "Study"
 label variable source_acronym "EDC source" 
 *label variable study_uid "unique id (joining key) for study"
 label variable site_number	"public site_number of site at visit"
-label variable dw_site_uid	"unique id of site at visit"
+// 2025-02-04 changed names 
+label variable c_site_key	"unique id of site at visit"
+label variable c_subject_key "subject unique id (joining key)"
+
 label variable subject_number "public facing subject_number (string)"
-label variable dw_subject_uid "subject unique id (joining key)"
+
 label variable dw_event_type_acronym "registry event type"
 label variable c_effective_event_date "If visit, date of visit or created date when visit date not entered. If TAE, date of event onset, then use date of follow-up visit at which TAE was reported, or created date when neither is entered. If exit, date of exit or created date when exit date not entered."
 label variable c_provider_id "provider ID"
 label variable full_version "concatenated major_version.minor_version to represent paper form version"
 label variable coll_adverse_instance_uid "unique id of comor (or adverse) 'happening' instance"
 label variable coll_map_uid	"unique id of 'mapping row'"
-label variable x_edc_event_name_raw "event label shown in EDC front-end UI"
-label variable x_edc_event_ordinal "occurrence number of event type in EDC"
+// 2025-04-02 name changed 
+label variable edc_event_name_raw "event label shown in EDC front-end UI"
+label variable edc_event_ordinal "occurrence number of event type in EDC"
+
 label variable coll_crf_name_raw	"CRF or form label shown in EDC front-end UI"
 label variable coll_crf_ordinal	"occurrence number of form type in EDC"
 label variable coll_group_type_acronym	"EDC back-end group label"
@@ -1551,27 +1598,29 @@ label variable c_effective_event_date_formatted "Formatted c_effective_event_dat
 label variable reported_date_formatted "Formatted reported_date" 
 label variable imp_onset_date "Date of onset: imputed from visit_date or c_effective_event_date"
 label variable imp_onset_date_flag "Indicates if imp_onset_date is imputed"
-label variable imp_onset_year "Date of onset: imputed year"
-label variable imp_onset_month "Date of onset: imputed month"
-label variable imp_onset_day "Date of onset: imputed day"
+
+save temp\data\omor_after_dedup, replace 
 
 * Ying added to de-duplicate
-sort subject_number visitdate comor_type comor_type_txt location location_txt onset_date
-by subject_number visitdate comor_type comor_type_txt location location_txt onset_date: gen vN=_N 
-by subject_number visitdate comor_type comor_type_txt location location_txt onset_date: gen vn=_n 
-tab vN if vn==1 
-*all non-mel skin in version 12-14 
-tab full_version if vN>1 
-tab comor_type comorkey if vN>1 
-by subject_number visitdate comor_type comor_type_txt location location_txt onset_date: drop if _n>1 
+sort subject_number visitdate comor_type comor_type_txt location location_txt imp_onset_date onset_date md_tae 
+by subject_number visitdate comor_type comor_type_txt location location_txt imp_onset_date: gen vN=_N if strpos(comor_type, "non-melanoma")==0 
+by subject_number visitdate comor_type comor_type_txt location location_txt imp_onset_date: gen vn=_n if strpos(comor_type, "non-melanoma")==0 
+tab vN 
+
+* br subject_number visitdate comor_type onset_date imp_onset_date dw_event_type_acronym vn vN if vN>1 & vN<. 
+drop if vN==2 & vn==1 
 drop vn vN 
 
 *Ying clean duplicate peptic ulcer and bleeding ulcer which casue data issues: CSG map bleeding ulcer to peptic ulcer in verison<7, keep bleeding ulcer in unmapped. bv map both. 
-sort subject_number visitdate comorkey onset_date comor_type 
-bysort subject_number visitdate comorkey onset_date: drop if _N==2 & comorkey=="ulcer" & comor_type=="bleeding ulcer" & comor_type[_n+1]=="peptic ulcer" 
+sort subject_number visitdate comorkey imp_onset_date comor_type 
+bysort subject_number visitdate comorkey imp_onset_date: gen ck=1 if _N==2 & comorkey=="ulcer" & comor_type=="bleeding ulcer" & comor_type[_n+1]=="peptic ulcer" 
+bysort subject_number visitdate comorkey imp_onset_date: replace ck=2 if _n==2 & ck[_n-1]==1 
+tab ck comor_type 
+drop if ck==2  
+drop ck  
 
-drop x_is_test c_is_suppressed_not_seen dw_subject_uid  coll_map_uid  dw_site_uid coll_adverse_instance_uid // ENG created vars 
-drop if site_number=="999" | site_number=="998" | site_number=="1440" |site_number=="1019" // test sites 
+//2025-02-04 updated to reflect changed names 
+drop x_is_test c_is_suppressed_not_seen c_subject_key  coll_map_uid  c_site_key coll_adverse_instance_uid // ENG created vars 
 
 * Ying edit on 2024-08-15 
 *use clean_table\1_7_allcomor, clear 
@@ -1586,18 +1635,35 @@ foreach x in confirm_tae serious {
 	lab val `x' ny 
 }
 
-unique subject_number comor_type comor_type_txt onset_date location location_txt_orig // unique key 
+unique subject_number comor_type comor_type_txt imp_onset_date location location_txt_orig // unique key 2025-02-04 9 duplicates. 
+*duplicates list subject_number comor_type comor_type_txt onset_date location location_txt_orig
+
+// 2025-02-26 decided to drop the 3 duplicated rows for not
+duplicates tag subject_number comor_type comor_type_txt imp_onset_date location location_txt_orig, gen(dup) 
+
+tab dup if strpos(comor_type, "nmsc") ==0  
+
+sort subject_number comorkey comor_type comor_type_txt imp_onset_date  location location_txt_orig dw_event_type_acronym 
+by subject_number comorkey comor_type comor_type_txt imp_onset_date  location location_txt_orig: drop if _N==2 & _n==1 & strpos(comor_type, "nmsc")==0 
+
+drop dup 
+
 
 // 2025-01-09 drop dates beyond datacut 
-codebook visitdate // [01jan1900,07jan2025] ==> [01jan1900,31dec2024]
-*count if visitdate>d(31dec2024)
+codebook visitdate // [01jan1900,03mar2025]
+*count if visitdate>d(31mar2025)
 
 count if visitdate>d($cutdate)
 drop if visitdate>d($cutdate)
 
-
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
 ** save dataset 
-compress
+compress 
+
+*use clean_table\1_7_allcomor_$datacut, clear
+drop created_date
 save clean_table\1_7_allcomor_$datacut, replace 
 
 
@@ -1606,6 +1672,20 @@ foreach x in diabetes osteopenia osteoporosis metaoblic_oth hypertension revasc 
 cap erase temp/data/`x'.dta 
 }
 
+cap log close 
+log using temp\test_allcomor.log, replace
+use "$pdata\clean_table\1_7_allcomor_$pdatacut" , clear 
+unique subject_number visitdate comorkey onset_date
+bysort subject_number visitdate comorkey onset_date: drop if _N>1
+save temp\1_7_allcomor_test, replace 
+
+use clean_table\1_7_allcomor_$datacut, clear 
+unique subject_number visitdate comorkey onset_date
+bysort subject_number visitdate comorkey onset_date: drop if _N>1
 
 
+drop c_effective_event_date_formatted 
+corcf * using temp\1_7_allcomor_test, id(subject_number visitdate comorkey onset_date) 
+
+cap log close
 exit

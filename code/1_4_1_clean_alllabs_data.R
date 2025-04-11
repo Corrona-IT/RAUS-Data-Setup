@@ -30,7 +30,7 @@ library(tidyverse)
 tdy_date <- Sys.Date()
 # cut date to use while BVs are still in odbc
 # LG 2024-08-09 update for new data 
-cut_date    <- as.Date("2025-01-01")
+cut_date    <- as.Date("2025-04-01")
 
 # cut_date <- floor_date(Sys.Date(), "month")-1
 # test cut_date var
@@ -123,17 +123,19 @@ labs_clean <-  haven::read_dta(glue("{bv_raw}/bv_labs.dta")) %>%
   # LG 2024-07-05 temporarily change from lab_type to coll_subtype
   # LG 2024-07-10 change back to lab_type and lab_type_code
   # LG 2024-07-10 change edc_event_name_raw to x_edc_event_name_raw
+  # LG 2025-02-04 changed prev *_uid vars to c_*_key
+  # LG 2025-04-02 changed x_edc_* to edc_*
   select(
-    -c(dw_event_instance_uid,
-       dw_site_uid,
-       dw_subject_uid, 
+    -c(c_dw_event_instance_key,
+       c_site_key,
+       c_subject_key, 
        coll_lab_instance_uid,
        coll_map_uid,
        coll_crf_name_raw,
        coll_crf_ordinal,
        coll_group_type_acronym,
        coll_group_ordinal,
-       x_edc_event_name_raw  
+       edc_event_name_raw  
        )
     ) %>% 
   mutate(lab_img_type       = 1) %>% 
@@ -289,19 +291,20 @@ imaging_clean <-  haven::read_dta(glue("{bv_raw}/bv_imaging.dta")) %>%
   filter(site_number != "999") %>%
   # remove backend DWH vars
   # LG 2024-07-10 edc_event_name_raw and edc_event_ordinal were changed to x_*
+  # LG 2025-02-04 change 3 _uid vars to _key
   select(
-    -c(dw_event_instance_uid,
-       dw_site_uid,
-       dw_subject_uid, 
+    -c(c_dw_event_instance_key,
+       c_site_key,
+       c_subject_key, 
        coll_imaging_instance_uid,
        coll_map_uid,
        coll_crf_name_raw,
        coll_crf_ordinal,
        coll_group_type_acronym,
        coll_group_ordinal,
-       x_edc_event_name_raw,
+       edc_event_name_raw,
        # dw_event_type_acronym,
-       x_edc_event_ordinal
+       edc_event_ordinal
     )
   ) %>% 
   # MRI only option available before version 7; currently given the imaging type of MRI / Ultrasound - joint
@@ -660,7 +663,7 @@ all_labs_labelled <- all_labs %>%
     parent_study_acronym, 
     # parent_study_uid,
     # study_uid,
-    x_edc_event_ordinal,
+    edc_event_ordinal,
     lab_result_unit_raw,
     img_finding,
     lab_img_name_code
@@ -682,7 +685,8 @@ all_labs_labelled <- all_labs %>%
 
 
   mutate(
-    # per ying, remove obs where lab date and lab result are missing. if lab date 
+    # per ying, remove obs where lab date and lab result are missing. if lab date
+    # 2025-03-05 LG Keep created date and last_modified date to clean visitdate later
     miss_dt_result_raw = if_else(is.na(lab_img_dt_raw) & is.na(lab_img_result_raw), 1L, 0L, 0L),
   ) %>% 
   filter(miss_dt_result_raw == 0) %>% 
@@ -690,6 +694,8 @@ all_labs_labelled <- all_labs %>%
   select(subject_number, 
          site_number,
          c_effective_event_date,
+         c_event_created_date, 
+         c_event_last_modified_date,
          dw_event_type_acronym,
          full_version,
          # study_source_acronym,

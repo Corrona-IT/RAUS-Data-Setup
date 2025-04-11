@@ -42,8 +42,10 @@ Month+day missing in original |      2,905        4.77       91.63 ==>needed
 */
 
 gen drug_date_raw_year=substr(drug_date_raw, 1,4)
-destring drug_date_raw_year, replace 
+
 tab drug_date_raw_year 
+replace drug_date_raw_year="" if drug_date_raw_year=="UNKN"
+destring drug_date_raw_year, replace 
 
 gen drug_date_raw_mon=substr(drug_date_raw, 6,2)
 destring drug_date_raw_mon, force replace 
@@ -55,13 +57,18 @@ destring drug_date_raw_day, force replace
 replace drug_date_raw_day=. if drug_date_raw_day==0
 tab drug_date_raw_day 
 
-lab define date_impute 1 "No imputation" 2 "Day missing in original" 3 "Month+day missing in original" 4 "Drug year out of range" 5 "Imputed differently from original"  9 "No original data", modify 
+// 2025-01-30 after discussion with Oksana, re-label the imputation variable 
+lab define start_date_impute 1 "Same as drug date" 2 "Date missing in original drug date" 3 "Month+day missing in original drug date" 4 "Drug year of drug date out of range, using report date as drug date" 5 "Imputed differently from original drug date due to available drug status"  9 "Original drug date is missing" .m "started prior to enrollment and cannot be imputed", modify 
+
+lab define stop_date_impute 1 "Same as drug date" 2 "Date missing in original drug date" 3 "Month+day missing in original drug date" 4 "Drug year of drug date out of range, using report date as drug date" 5 "Imputed differently from original drug date due to available drug status"  9 "Original drug date is missing" .m "Drug in use (no stop date) or stop date cannot be imputed", modify 
 
 foreach x in drug generic{
     foreach y in start stop{
 	    cap drop `x'_`y'_date_impute
-	    gen `x'_`y'_date_impute=.
-		replace `x'_`y'_date_impute=1 if `x'_`y'==1 & `x'_`y'_date<. & year(`x'_`y'_date)==drug_date_raw_year & month(`x'_`y'_date)==drug_date_raw_mon & day(`x'_`y'_date)==drug_date_raw_day // 1=exactly the same date 
+		// 2025-03-06 define missing value as .m 
+	    gen `x'_`y'_date_impute=.m
+		
+	    replace `x'_`y'_date_impute=1 if `x'_`y'==1 & `x'_`y'_date<. & year(`x'_`y'_date)==drug_date_raw_year & month(`x'_`y'_date)==drug_date_raw_mon & day(`x'_`y'_date)==drug_date_raw_day // 1=exactly the same date 
 
 		replace `x'_`y'_date_impute=2 if `x'_`y'==1 & `x'_`y'_date<. & year(`x'_`y'_date)==drug_date_raw_year & month(`x'_`y'_date)==drug_date_raw_mon & drug_date_raw_day==. // 2= missing day only, month and year are the same as raw
 		
@@ -74,11 +81,12 @@ foreach x in drug generic{
 	
 		lab var `x'_`y'_date_impute "Type of imputation for `x' `y' date"
 		
-		lab val `x'_`y'_date_impute date_impute
+		lab val `x'_`y'_date_impute `y'_date_impute
 	}
 }
 
-tab drug_start_date_impute if drug_start==1 & drug_start_date<., m 
+codebook drug_start_date_impute ,m 
+tab drug_start_date_impute , m //if drug_start==1 & drug_start_date<.
 tab drug_stop_date_impute if drug_stop==1 & drug_stop_date<., m 
 tab generic_start_date_impute if generic_start==1 & generic_start_date<., m 
 tab generic_stop_date_impute if generic_stop==1 & generic_stop_date<., m 
@@ -225,13 +233,22 @@ lab var prev_init "prevalent initiators"
 // 2024-06-06 update, if start_date is missing, then code start to missing 
 replace start=. if start_date==.
 
+tab start_date_impute if start_date!=.,m
+tab stop_date_impute if stop_date!=.,m 
+
+// 2025-02-06 updated missing value label from Oksana's suggestion
+
+foreach x in start stop {
+replace `x'_date_impute=.m if `x'_date_impute==.
+codebook `x'_date_impute
+}
+
 save 2_4_drugexposures_$datacut, replace 
 
 // 2024-10-21 testing data, send to PV for testing 
 * save temp\2_4_drugexposures_updated_2024-10-21, replace 
 * corcf * using 2_4_drugexposures_2024-10-01, id(subject_number druggrp start_order)
-tab start_date_impute if start_date!=.,m
-tab stop_date_impute if stop_date!=.,m 
+
 
 unique subject_number druggrp start_order
 

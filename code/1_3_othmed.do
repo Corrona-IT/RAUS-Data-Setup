@@ -30,16 +30,29 @@ replace conmed_date=c_effective_event_date if conmed_status=="continue" & conmed
 gen visitdate=date(c_effective_event_date, "YMD") 
 format visitdate %tdCCYY-NN-DD 
 
+// 2025-03-04 LG clean visitdate that could entered wrong in RCC
+codebook visitdate 
 tab dw_event_type_acronym if c_effective_event_date=="" 
 
 * TAEs form can be missing c_effective_event_date 
-for any created_date last_modified_date: gen X=dofc(c_event_X)  
+for any created_date last_modified_date: gen X=dofc(c_event_X) 
 for any created_date last_modified_date: format X %tdCCYY-NN-DD 
+count if visitdate>d($cutdate)
+replace visitdate=created_date if visitdate==. & created_date<. 
+replace visitdate=created_date if visitdate>15+d($cutdate)
 
-replace visitdat=created_date if visitdate==. & created_date<. 
+
+list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if visitdate>d($cutdate), noobs ab(16)
+
+
+count if visitdate>d($cutdate)
+for any 001040564: list subject_number visitdate c_effective_event_date c_event_created_date c_event_last_modified_date if subject_number=="X" & year(visitdate)==2025, noobs ab(16)
 
 for any created_date last_modified_date: drop c_event_X 
 for any created_date last_modified_date: rename X c_event_X 
+
+
+ 
 
 replace conmed_status_code=99 if conmed_status_code==9 
 
@@ -174,7 +187,9 @@ lab var full_version  "form version"
 lab var study_acronym  "Study type"
 lab var source_acronym  "EDC data source"
 lab var c_provider_id  "Provider ID"
-lab var dw_event_instance_uid  "Event instance UID"
+// 2025-02-05 changed variable name 
+lab var c_dw_event_instance_key "Event instance UID"
+*lab var dw_event_instance_uid  "Event instance UID"
 lab var c_event_created_date  "Created date"
 lab var c_event_last_modified_date  "Last modified date"
 lab var conmed_name  "CheckBox for each drug/item"
@@ -198,7 +213,9 @@ lab var reason_2_category   "change reason category for reason 2"
 lab var reason_3_category  "change reason category for reason 3"
 lab var drugkey  "drug key" 
 
-drop parent_study dw_site_uid dw_subject_uid coll_conmed_instance_uid coll_map_uid 
+// 2025-02-04 changed var names 
+drop parent_study c_site_key c_subject_key coll_conmed_instance_uid coll_map_uid 
+*drop parent_study dw_site_uid dw_subject_uid coll_conmed_instance_uid coll_map_uid 
 drop discontinued_due_to_ae attributed_to_ae c_is_suppressed_not_seen x_is_test indication_txt 
 drop *_code 
 drop c_effective_event_date  most_recent_dose_date 
@@ -216,34 +233,24 @@ unique subject_number visitdate conmed_section drugkey conmed_name_txt
 sort subject_number visitdate conmed_section drugkey conmed_name_txt full_version 
 by subject_number visitdate conmed_section drugkey conmed_name_txt: drop if _n<_N 
 
-drop if site_number>=998 
+drop if site_number>=997 
 
 // 2025-01-14, drop data out of cutdate and compress to save space 
 
 codebook visitdate // [01oct2001,17dec2025]
-count if visitdate>d(31dec2024) //506
-
+count if visitdate>d(31mar2025) // 270
+*
 count if visitdate>d($cutdate)
 drop if visitdate>d($cutdate)
-
+// 2025-03-04 LG drop 4 jr RA subjects 
+for any 001010120 019100453 100140636 452722687: count if subject_number=="X"
+for any 001010120 019100453 100140636 452722687: drop if subject_number=="X"
 compress 
+
 save "clean_table\1_3_conmeds_$datacut" , replace 
 
-
-
-
-
-
-
-
-
-
-
-
-  
-
-
-
-
-
-
+cap log close
+log using temp\test_conmeds.log, replace
+use clean_table\1_3_conmeds_$datacut, clear 
+corcf *  using "$pdata\clean_table\1_3_conmeds_$pdatacut", id(subject_number visitdate drugkey conmed_status) 
+log close 
